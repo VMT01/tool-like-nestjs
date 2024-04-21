@@ -1,0 +1,6 @@
+{
+    "like": {
+        "load_more": "#show_more_coment",
+        "like_attribute": "data-name"
+    }
+}
