@@ -1,3 +1,4 @@
+import path from 'path';
 import { Browser, CookieParam, Page, PuppeteerLifeCycleEvent } from 'puppeteer';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
@@ -26,7 +27,7 @@ export class PuppeteerHelper {
         '--disable-breakpad',
         '--disable-component-extensions-with-background-pages',
         '--disable-extensions',
-        '--disable-features=TranslateUI,BlinkGenPropertyTrees',
+        '--disable-features=TranslateUI,BlinkGenPropertyTrees,site-per-process',
         '--disable-ipc-flooding-protection',
         '--disable-renderer-backgrounding',
         '--enable-features=NetworkService,NetworkServiceInProcess',
@@ -36,18 +37,19 @@ export class PuppeteerHelper {
         '--enable-unsafe-webgpu',
     ];
 
-    async start(headless: boolean) {
+    async start(headless: boolean, randomUUID: string) {
         this._browser = await puppeteer.launch({
             headless,
-            args: this._args,
+            // args: this._args,
+            args: [`--user-data-dir=${path.join('puppeteer', `profile-${randomUUID}`)}`],
             defaultViewport: {
                 width: 1200,
                 height: 1200,
                 deviceScaleFactor: 1,
                 isLandscape: true,
             },
-            userDataDir: 'user-puppeteer',
             ignoreHTTPSErrors: true,
+            executablePath: puppeteer.executablePath(),
         });
         [this._page] = await this._browser.pages();
         await this._page.setCacheEnabled(false);
@@ -81,7 +83,8 @@ export class PuppeteerHelper {
             promises.push(this._page.waitForSelector(selector, { timeout }));
         }
 
-        await Promise.allSettled(promises);
+        // await Promise.allSettled(promises);
+        await Promise.all(promises);
     }
 
     async run<T>(f: (page: Page) => Promise<T>): Promise<T> {

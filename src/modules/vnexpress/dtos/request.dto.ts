@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsNotEmpty, IsNumber, IsUrl, Max, Min } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsNumber, IsUrl, Min } from 'class-validator';
 
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -9,10 +9,10 @@ export class VnExpressRequestQuery {
     @IsNotEmpty()
     url: string;
 
-    @ApiProperty({ description: 'Số lượng browser sẽ thực thi đồng thời (min: 1 - max: 10)' })
-    @Max(10)
+    @ApiProperty({ description: 'Số lượng browser sẽ thực thi đồng thời (min: 1)' })
     @Min(1)
     @IsNumber()
+    @Transform(({ value }) => Number(value))
     @IsNotEmpty()
     profiles: number;
 

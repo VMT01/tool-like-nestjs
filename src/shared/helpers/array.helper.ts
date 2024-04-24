@@ -1,8 +1,7 @@
-export function chunking<T>(arr: T[], chunkSize = 50): T[][] {
-    const chunks: T[][] = [];
-    for (let i = 0; i < arr.length; i += chunkSize) {
-        const chunk = arr.splice(i, chunkSize);
-        chunks.push(chunk);
+export function chunking<T>(arr: T[], n: number): T[][] {
+    const response: T[][] = [];
+    for (let i = 0; i < arr.length; i += n) {
+        response.push(arr.slice(i, i + n));
     }
-    return chunks;
+    return response;
 }

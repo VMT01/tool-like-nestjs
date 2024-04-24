@@ -1,6 +1,11 @@
 {
     "like": {
         "load_more": "#show_more_coment",
-        "like_attribute": "data-name"
+        "like_attribute": "data-name",
+        "comment_item": "div.comment_item"
+    },
+    "comment": {
+        "text_area": "#txtComment",
+        "submit_button": "#comment_post_button"
     }
 }

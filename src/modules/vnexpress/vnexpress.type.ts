@@ -1,3 +1,5 @@
+import { CookieParam, Page } from 'puppeteer';
+
 export type VNExDataItem = {
     comment_id: string;
     parent_id: string;
@@ -38,3 +40,45 @@ export type VNExAccount = {
     username: string;
     password: string;
 };
+
+export type ResultType = {
+    totalLike: number;
+    data: { comment: string; totalLike: number; success: number; noAction: number; failed: number }[];
+};
+
+export type PuppeteerClusterLikeDataType = {
+    url: string;
+    cookies: CookieParam[];
+    loadMoreFunction: (page: Page) => Promise<boolean>;
+    likeFunction: (page: Page) => Promise<number[]>;
+    retryPromise: <T>(
+        f: () => Promise<T>,
+        condition: (e: T) => boolean,
+        maxRetries: number,
+        delay: number,
+    ) => Promise<T>;
+};
+
+export type PuppeteerLikeResponseType = Array<{
+    success: boolean;
+    noAction: boolean;
+    failed: boolean;
+}>;
+
+export type LikeResultType = {
+    success: number;
+    noAction: number;
+    failed: number;
+};
+
+export type PuppeteerClusterCommentDataType = {
+    url: string;
+    cookies: CookieParam[];
+    commentFunction: (page: Page) => Promise<void>;
+};
+
+export type CommentResultType = Array<{
+    comment: string;
+    success: boolean;
+    message?: any;
+}>;
