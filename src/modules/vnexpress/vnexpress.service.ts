@@ -69,9 +69,8 @@ export class VnExpressService {
      *
      * To get the final response, we sum the total success result of each column and return
      */
-    async likeVnex({ url, isVisual, profiles }: VnExpressRequestQuery, body: string) {
+    async likeVnex({ url, isVisual, profiles, likeLimit }: VnExpressRequestQuery, body: string) {
         // Fetch comments
-
         const comments = await retryPromise(
             () => this._fetchAndFilterComments(url, body),
             e => e !== null,
@@ -86,10 +85,8 @@ export class VnExpressService {
 
         // Initial result
         const result: LikeResultType[] = [];
-        // eslint-disable-next-line @typescript-eslint/prefer-for-of
-        for (let i = 0; i < comments.length; i++) {
-            result.push({ success: 0, noAction: 0, failed: 0 });
-        }
+        let totalSuccess = 0;
+        comments.forEach(_ => result.push({ success: 0, noAction: 0, failed: 0 }));
 
         // Init browser pool
         const cluster = await Cluster.launch({
@@ -117,15 +114,23 @@ export class VnExpressService {
             // Avoid error
             const responses = await Promise.allSettled(promises);
             for (const response of responses) {
-                if (response.status === 'rejected') {
-                    // Error happend
-                    result.forEach(r => r.failed++);
-                } else {
-                    // Handle response from Puppeteer
-                    response.value.forEach((v, idx) =>
-                        v === 2 ? result[idx].success++ : v === 1 ? result[idx].noAction++ : result[idx].failed++,
-                    );
+                if (response.status === 'rejected') result.forEach(r => r.failed++);
+                else {
+                    response.value.forEach((v, idx) => {
+                        if (v === 2) {
+                            result[idx].success++;
+                            totalSuccess++;
+                        }
+                        if (v === 1) result[idx].noAction++;
+                        if (v === 0) result[idx].failed++;
+                    });
                 }
+            }
+
+            // We should break the loop of profiles because we've liked enough
+            if (totalSuccess / comments.length >= likeLimit) {
+                console.log('132 ---', totalSuccess, likeLimit);
+                break;
             }
         }
         await cluster.idle();
@@ -251,7 +256,7 @@ export class VnExpressService {
                 let result = await page.evaluate(
                     (comment_id, attr) => {
                         const el = document.getElementById(comment_id);
-                        if (!el) return 0; // Element not found => ERROR
+                        if (!el) return 0; // Element not found error
 
                         const elAttr = el.getAttribute(attr);
                         if (elAttr || elAttr === 'like') return 1; // Liked => No Action
