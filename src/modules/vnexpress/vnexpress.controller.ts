@@ -1,7 +1,7 @@
 import { Body, Controller, Post, Query } from '@nestjs/common';
 import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 
-import { VnExpressRequestQuery } from './dtos/request.dto';
+import { VnExpressCommentQuery, VnExpressLikeQuery } from './dtos/request.dto';
 import { VnExpressService } from './vnexpress.service';
 
 @Controller('vnexpress')
@@ -15,7 +15,7 @@ export class VnExpressController {
         description: 'Like các comment trên trang VNExpress dựa trên danh sách file cookie cung cấp',
     })
     @ApiConsumes('text/plain')
-    likeVnex(@Query() query: VnExpressRequestQuery, @Body() body: string) {
+    likeVnex(@Query() query: VnExpressLikeQuery, @Body() body: string) {
         return this.vnexService.likeVnex(query, body);
     }
 
@@ -25,7 +25,7 @@ export class VnExpressController {
         description: 'Comment trên trang VNExpress dựa trên danh sách file cookie cung cấp',
     })
     @ApiConsumes('text/plain')
-    commentVnex(@Query() query: VnExpressRequestQuery, @Body() body: string) {
+    commentVnex(@Query() query: VnExpressCommentQuery, @Body() body: string) {
         return this.vnexService.commentVnex(query, body);
     }
 }

@@ -74,7 +74,14 @@ export type LikeResultType = {
 export type PuppeteerClusterCommentDataType = {
     url: string;
     cookies: CookieParam[];
-    commentFunction: (page: Page) => Promise<void>;
+    commentFunction: (page: Page) => Promise<boolean>;
+    retryPromise: <T>(
+        f: () => Promise<T>,
+        condition: (e: T) => boolean,
+        maxRetries: number,
+        delay: number,
+        resolveError?: boolean,
+    ) => Promise<T>;
 };
 
 export type CommentResultType = Array<{

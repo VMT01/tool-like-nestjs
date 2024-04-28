@@ -1,5 +1,4 @@
 @echo off
-title Update Tool like NestJS
 
 echo Updating source...
 git pull
