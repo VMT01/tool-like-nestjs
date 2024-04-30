@@ -1,66 +1,27 @@
-import path from 'path';
-import { Browser, CookieParam, Page, PuppeteerLifeCycleEvent } from 'puppeteer';
-import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import puppeteer, { Browser, Page } from 'puppeteer';
 
-puppeteer.use(StealthPlugin());
-
-export class PuppeteerHelper {
+class PuppeteerSingleInstance {
     private _browser: Browser;
     private _page: Page;
-    private readonly _args: string[] = [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-infobars',
-        '--single-process',
-        '--no-zygote',
-        '--no-first-run',
-        '--ignore-certificate-errors',
-        '--ignore-certificate-errors-skip-list',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--disable-gpu',
-        '--hide-scrollbars',
-        '--disable-notifications',
-        '--disable-background-timer-throttling',
-        '--disable-backgrounding-occluded-windows',
-        '--disable-breakpad',
-        '--disable-component-extensions-with-background-pages',
-        '--disable-extensions',
-        '--disable-features=TranslateUI,BlinkGenPropertyTrees,site-per-process',
-        '--disable-ipc-flooding-protection',
-        '--disable-renderer-backgrounding',
-        '--enable-features=NetworkService,NetworkServiceInProcess',
-        '--force-color-profile=srgb',
-        '--metrics-recording-only',
-        '--mute-audio',
-        '--enable-unsafe-webgpu',
-    ];
+    private _headless: boolean;
 
-    async start(headless: boolean, randomUUID: string) {
+    constructor(headless: boolean) {
+        this._headless = headless;
+    }
+
+    async start() {
         this._browser = await puppeteer.launch({
-            headless,
-            // args: this._args,
-            args: [`--user-data-dir=${path.join('puppeteer', `profile-${randomUUID}`)}`],
+            headless: this._headless,
+            args: ['--incognito'],
             defaultViewport: {
-                width: 1200,
-                height: 1200,
+                width: 1080,
+                height: 1024,
                 deviceScaleFactor: 1,
                 isLandscape: true,
             },
-            ignoreHTTPSErrors: true,
-            executablePath: puppeteer.executablePath(),
         });
         [this._page] = await this._browser.pages();
         await this._page.setCacheEnabled(false);
-    }
-
-    async setCookies(cookies: CookieParam[]) {
-        await this._page.setCookie(...cookies);
-    }
-
-    async reload(waitUntil: PuppeteerLifeCycleEvent | PuppeteerLifeCycleEvent[], timeout = 2 * 60 * 1000) {
-        await this._page.reload({ waitUntil, timeout });
     }
 
     async stop() {
@@ -69,25 +30,35 @@ export class PuppeteerHelper {
         await this._browser.close();
     }
 
-    async go(
-        url: string,
-        waitUntil: PuppeteerLifeCycleEvent | PuppeteerLifeCycleEvent[],
-        selector?: string,
-        timeout = 2 * 60 * 1000, // 2 mins
-    ) {
-        const promises: any[] = [
-            this._page.goto(url, { waitUntil, timeout }),
-            this._page.waitForNavigation({ waitUntil, timeout }),
-        ];
-        if (selector) {
-            promises.push(this._page.waitForSelector(selector, { timeout }));
-        }
+    async run<T>(f: (page: Page) => Promise<T>) {
+        return await f(this._page);
+    }
+}
 
-        // await Promise.allSettled(promises);
+export class PuppeteerHelper {
+    private _puppeteerInstances: PuppeteerSingleInstance[] = [];
+
+    constructor(instanceNum: number, headless: boolean) {
+        for (let i = 0; i < instanceNum; i++) {
+            this._puppeteerInstances.push(new PuppeteerSingleInstance(headless));
+        }
+    }
+
+    async initInstances() {
+        const promises = this._puppeteerInstances.map(ppt => ppt.start());
         await Promise.all(promises);
     }
 
-    async run<T>(f: (page: Page) => Promise<T>): Promise<T> {
-        return await f(this._page);
+    async killInstances() {
+        const promises = this._puppeteerInstances.map(ppt => ppt.stop());
+        await Promise.all(promises);
+    }
+
+    async runInstances<T>(fs: ((page: Page) => Promise<T>)[]) {
+        const promises: Promise<T>[] = [];
+        for (let i = 0; i < fs.length; i++) {
+            promises.push(this._puppeteerInstances[i].run(fs[i]));
+        }
+        return await Promise.all(promises);
     }
 }

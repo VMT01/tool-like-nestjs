@@ -1,10 +1,9 @@
 @echo off
 
 echo Updating source...
-git pull
-
-echo Removing old build files...
-rm -rf dist
+git checkout main && git pull origin main
 
 echo Building new build files...
-npm run build
+npm install && npm run build
+
+pause

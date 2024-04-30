@@ -1,142 +1,55 @@
 import fs from 'fs';
-import path from 'path';
-import { CookieParam, Page } from 'puppeteer';
-import { Cluster } from 'puppeteer-cluster';
-import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import { CookieParam, ElementHandle, Page, WaitForOptions } from 'puppeteer';
 
 import { Injectable } from '@nestjs/common';
 
-import { ECookieFolder } from '@constants/directory.constant';
+import { EServiceKind } from '@constants/service-kind.constant';
 
 import VnExpressSelectors from '@selectors/vnexpress.json';
 
 import { chunking } from '@shared/helpers/array.helper';
-import { retryPromise } from '@shared/helpers/promise.helper';
-import { waiter } from '@shared/helpers/time.helper';
+import { readCookies } from '@shared/helpers/profile.helper';
+import { retryPromise, waiter } from '@shared/helpers/promise.helper';
+import { PuppeteerHelper } from '@shared/helpers/puppeteer.helper';
 
 import { VnExpressCommentQuery, VnExpressLikeQuery } from './dtos/request.dto';
-import {
-    CommentResultType,
-    LikeResultType,
-    PuppeteerClusterCommentDataType,
-    PuppeteerClusterLikeDataType,
-    ResultType,
-    VNExDataItem,
-    VNExResponse,
-} from './vnexpress.type';
-
-puppeteer.use(StealthPlugin());
+import { CommentResultType, LikeResultType, ResultType, VNExDataItem, VNExResponse } from './vnexpress.type';
 
 @Injectable()
 export class VnExpressService {
-    /**
-     * This method will read account cookies from ./accounts/vnexpress
-     *                         _______________________^
-     *                        |
-     * REMEMBER: must place this folder in current workspace
-     */
-    private _readCookieProfiles() {
-        console.log('[VNExpress] Reading profiles');
-        const folder = path.join(ECookieFolder.BASE, ECookieFolder.VNEXPRESS);
-        if (!fs.existsSync(folder)) {
-            throw new Error(`Cookie folder for VNExpress not found! Must resolve this pattern: ${folder}`);
-        }
-
-        const cookies: CookieParam[][] = fs.readdirSync(folder).map(f => {
-            const content = fs.readFileSync(path.join(folder, f), 'utf-8');
-            const { cookies } = JSON.parse(content);
-            return cookies.map((cookie: any) => ({ ...cookie, sameSite: 'None' }) as CookieParam[]);
-        });
-        return cookies;
-    }
-
-    /**
-     * Like service for like API
-     *
-     * This service will create a browser pool with worker number equal to profiles number user request.
-     * Base on user computer configuration, user can set the worker number respectively.
-     *
-     * RECOMMEND: 5 profiles
-     *
-     * Response from running browser parallel is a matrix with each line corresponds to a profile and each column represents the like results of that comment
-     *
-     * FOR EXAMPLE
-     *             comment 1, comment 2, comment 3
-     * profile 1: [...       , ...      , ...      ]
-     * profile 2: [...       , ...      , ...      ]
-     * profile 3: [...       , ...      , ...      ]
-     *
-     * To get the final response, we sum the total success result of each column and return
-     */
-    async likeVnex({ url, isVisual, profiles, likeLimit }: VnExpressLikeQuery, body: string) {
-        // Read profiles
-        const cookiesList = this._readCookieProfiles();
-
-        // Fetch comments
-        const comments = await retryPromise(
-            () => this._fetchAndFilterComments(url, body),
-            e => e !== null,
-            5,
-            1000,
-            true,
+    async likeVnex({ url, profileNum, likeLimit, isVisual }: VnExpressLikeQuery, body: string) {
+        const cookiess = readCookies(EServiceKind.VNEXPRESS);
+        const comments = await retryPromise<VNExDataItem[] | undefined>(
+            async () => await this._fetchAndFilterComments(url, body),
+            () => true,
         );
-        if (comments === null) return { success: false, message: 'VNExpress API Fetch comments failed' };
+        if (!comments) throw new Error('Network error while fetching VNExpress comments');
 
-        // Initial result
+        const ppt = new PuppeteerHelper(profileNum, !isVisual);
+
         const result: LikeResultType[] = [];
-        let totalSuccess = 0;
         comments.forEach(_ => result.push({ success: 0, noAction: 0, failed: 0 }));
 
-        // Init browser pool
-        const cluster = await Cluster.launch({
-            concurrency: Cluster.CONCURRENCY_BROWSER,
-            maxConcurrency: profiles,
-            puppeteerOptions: { headless: !isVisual },
-            puppeteer,
-            monitor: true,
-        });
-
-        // Run like in parallel
-        for (const cookiess of chunking(cookiesList, profiles)) {
-            const promises: Promise<number[]>[] = cookiess.map(cookies =>
-                cluster.execute(
-                    {
-                        url,
-                        cookies,
-                        loadMoreFunction: this.__loadmore,
-                        likeFunction: this.__runLike(comments),
-                        retryPromise,
-                    } as PuppeteerClusterLikeDataType,
-                    this._likeVnex,
-                ),
-            );
-            // Avoid error
-            const responses = await Promise.allSettled(promises);
+        const profileChunk = chunking(cookiess, profileNum);
+        for (let i = 0; i < profileChunk.length; i++) {
+            console.log(`[VNExpress] Running at chunk ${i + 1} / ${profileChunk.length}`);
+            await ppt.initInstances();
+            const responses = await ppt.runInstances(this._likeVnex(url, profileChunk[i], comments));
             for (const response of responses) {
-                if (response.status === 'rejected') result.forEach(r => r.failed++);
-                else {
-                    response.value.forEach((v, idx) => {
-                        if (v === 2) {
-                            result[idx].success++;
-                            totalSuccess++;
-                        }
-                        if (v === 1) result[idx].noAction++;
-                        if (v === 0) result[idx].failed++;
-                    });
+                if (!response) {
+                    for (const r of result) r.failed++;
+                    continue;
                 }
+                response.forEach((v, idx) => {
+                    if (v === 2) result[idx].success++;
+                    if (v === 1) result[idx].noAction++;
+                    if (v === 0) result[idx].failed++;
+                });
             }
-
-            // We should break the loop of profiles because we've liked enough
-            if (totalSuccess / comments.length >= likeLimit) {
-                console.log('132 ---', totalSuccess, likeLimit);
-                break;
-            }
+            await ppt.killInstances();
+            if (likeLimit && !result.some(r => r.success < likeLimit)) break;
         }
-        await cluster.idle();
-        await cluster.close();
 
-        // Calculate final result
         const finalResult: ResultType = { totalLike: 0, data: [] };
         result.forEach((r, idx) => {
             finalResult.data.push({
@@ -146,16 +59,22 @@ export class VnExpressService {
             });
             finalResult.totalLike += comments[idx].userlike + r.success;
         });
+
+        fs.writeFileSync('VNExpress-like.json', JSON.stringify(finalResult, undefined, 2));
+        console.log('Wrote results to file VNExpress-like.json');
         return finalResult;
     }
 
     /**
      * Fetch and filter comment list from VNExpress API that match required comments
      */
-    private async _fetchAndFilterComments(url: string, commentBody: string) {
+    private async _fetchAndFilterComments(url: string, body: string) {
         console.log('[VNExpress] Fetching VNExpress comments');
 
-        const comments = commentBody.split('\n').map(c => c.trim());
+        const comments = body
+            .split('\n')
+            .map(c => c.trim())
+            .filter(c => c.length > 0);
         const id = url.split('.')[1].split('-').at(-1);
         const commentPromises = [1, 2, 3].map(v =>
             fetch(
@@ -164,267 +83,192 @@ export class VnExpressService {
         );
 
         // Fetch comment list from VNExpress
-        try {
-            const response = await Promise.all(commentPromises);
-            const data: VNExResponse[] = await Promise.all(response.map(r => r.json()));
-            const listCommentApi = data.reduce((acc: VNExDataItem[], v: VNExResponse) => acc.concat(v.data.items), []);
+        const response = await Promise.all(commentPromises);
+        const data: VNExResponse[] = await Promise.all(response.map(r => r.json()));
+        const listCommentApi = data.reduce((acc: VNExDataItem[], v: VNExResponse) => acc.concat(v.data.items), []);
 
-            // Filter for comments that have the same content as requested
-            const listCommentSub: VNExDataItem[] = listCommentApi.filter(
-                comment => !!comments.find(c => comment.content.includes(c)),
-            );
+        // Filter for comments that have the same content as requested
+        const listCommentSub: VNExDataItem[] = listCommentApi.filter(
+            comment => !!comments.find(c => comment.content.includes(c)),
+        );
 
-            return listCommentSub;
-        } catch (err) {
-            return null;
-        }
+        return listCommentSub;
     }
 
-    /**
-     * Like VNExpress method for like service
-     */
-    private async _likeVnex({
-        page,
-        data: { url, cookies, loadMoreFunction, likeFunction, retryPromise },
-    }: {
-        page: Page;
-        data: PuppeteerClusterLikeDataType;
-    }) {
-        // Set profile for current browser session
-        await page.setCookie(...cookies);
+    private _likeVnex(
+        url: string,
+        profiles: CookieParam[][],
+        comments: VNExDataItem[],
+        waitForOptions: WaitForOptions = {
+            waitUntil: 'networkidle2',
+            timeout: 3 * 60 * 1000,
+        },
+    ) {
+        return profiles.map(
+            profile =>
+                async function(page: Page) {
+                    const loadMore = async function() {
+                        let loadMore: ElementHandle<HTMLAnchorElement>;
+                        let commentCounter = 0;
+                        while (true) {
+                            loadMore = (await page.$(
+                                VnExpressSelectors.like.load_more,
+                            )) as ElementHandle<HTMLAnchorElement>;
+                            if (!loadMore) break;
 
-        // Try navigating to destination URL
-        const navigate = async () => {
-            try {
-                // Currently set timeout 5 mins for avoiding error
-                await page.goto(url, { waitUntil: 'networkidle2', timeout: 5 * 60 * 1000 });
-                return true;
-            } catch (err) {
-                return false;
-            }
-        };
-        await retryPromise(navigate, flag => flag, 5, 1_000);
-        await new Promise(rs => setTimeout(rs, 1_000));
+                            const commentLength = await page.$$eval(
+                                VnExpressSelectors.like.comment_item,
+                                els => els.length,
+                            );
+                            if (commentLength <= commentCounter) break;
 
-        // Try to load more comments
-        const loadMore = async () => await loadMoreFunction(page);
-        await retryPromise(loadMore, flag => flag, 5, 1_000);
-        await new Promise(rs => setTimeout(rs, 1_000));
+                            commentCounter = commentLength;
+                            await loadMore.click();
+                            await waiter();
+                        }
+                        await waiter(2000); // 2s
+                    };
 
-        // Try to like comments
-        const like = async () => await likeFunction(page);
-        const result = await retryPromise(like, result => !result.some(_ => 0), 5, 1_000);
-        await new Promise(rs => setTimeout(rs, 1_000));
+                    const like = async function(comment_id: string) {
+                        const result = await page.evaluate(
+                            (comment_id, attr) => {
+                                const el = document.getElementById(comment_id);
+                                if (!el) return 0; // Element not found error
 
-        return result;
-    }
+                                const elAttr = el.getAttribute(attr);
+                                if (elAttr || elAttr === 'like') return 1; // Liked => No Action
 
-    /**
-     * Load more comment in current page
-     */
-    private async __loadmore(page: Page) {
-        let commentCounter = 0;
-        while (true) {
-            const loadMore = await page.$(VnExpressSelectors.like.load_more);
-            if (!loadMore) break;
+                                (<HTMLAnchorElement>el).click();
+                                return 2;
+                            },
+                            comment_id,
+                            VnExpressSelectors.like.like_attribute,
+                        );
 
-            const commentLength = await page.$$eval(VnExpressSelectors.like.comment_item, els => els.length);
-            if (commentLength > commentCounter) {
-                commentCounter = commentLength;
-                await loadMore.click();
-            } else break;
+                        if (result === 2) await waiter();
+                        return result;
+                    };
 
-            await waiter(1_000);
-        }
+                    const run = async () => {
+                        await page.deleteCookie();
+                        await page.setCookie(...profile);
+                        await page.goto(url, waitForOptions);
+                        await loadMore();
 
-        const loadMore = await page.$(VnExpressSelectors.like.load_more);
-        return !loadMore;
-    }
+                        // Like comments
+                        const results: number[] = [];
+                        for (const { comment_id } of comments) {
+                            const result = await like(comment_id);
+                            results.push(result);
+                        }
 
-    /**
-     * Like required comments
-     *
-     * @returns An array of like response object. This object contain
-     * - success: Click like success
-     * - noAction: Current profile liked this comment so we ignore this
-     * - failed: Something weird happend so we have to return failed
-     */
-    private __runLike(comments: VNExDataItem[]) {
-        return async function(page: Page) {
-            const finalResult: number[] = [];
-            for (const { comment_id } of comments) {
-                /**
-                 * First time - Check for like button
-                 * If liked => skip
-                 * If not => click like
-                 */
-                let result = await page.evaluate(
-                    (comment_id, attr) => {
-                        const el = document.getElementById(comment_id);
-                        if (!el) return 0; // Element not found error
+                        if (results.includes(0) || results.includes(2)) {
+                            await Promise.all([page.reload(waitForOptions), page.waitForNavigation(waitForOptions)]);
+                            for (let i = 0; i < comments.length; i++) {
+                                const result = await like(comments[i].comment_id);
+                                if (result !== 1) results[i] = result;
+                            }
+                        }
 
-                        const elAttr = el.getAttribute(attr);
-                        if (elAttr || elAttr === 'like') return 1; // Liked => No Action
+                        await waiter(3000);
+                        await page.deleteCookie();
+                        return results;
+                    };
+                    return await retryPromise<number[] | undefined>(
+                        run,
+                        result => !result.includes(0),
+                        (newData, oldData) => {
+                            if (!oldData) return newData;
 
-                        (<HTMLAnchorElement>el).click();
-                        return 2;
-                    },
-                    comment_id,
-                    VnExpressSelectors.like.like_attribute,
-                );
-                await waiter(1_000);
+                            for (let i = 0; i < newData.length; i++) {
+                                if (newData[i] === 0) continue;
+                                if (newData[i] === 1) oldData[i] = oldData[i] === 2 ? 2 : 1;
+                                if (newData[i] === 2) oldData[i] = 2;
+                            }
 
-                /**
-                 * Second time: After first time run we receive status 2, which means like success
-                 * We have to re-check this whether it really liked
-                 */
-                if (result === 2) {
-                    await page.evaluate(
-                        (comment_id, attr) => {
-                            const el = document.getElementById(comment_id);
-                            const elAttr = el.getAttribute(attr);
-                            if (elAttr || elAttr === 'like') return; // Truly liked
-                            (<HTMLAnchorElement>el).click(); // If not, click again
+                            return oldData;
                         },
-                        comment_id,
-                        VnExpressSelectors.like.like_attribute,
                     );
-                    await waiter(1_000);
-
-                    /**
-                     * Final check: After second click, we check if this comment is liked
-                     * If not, return error
-                     */
-                    result = await page.evaluate(
-                        (comment_id, attr) => {
-                            const el = document.getElementById(comment_id);
-                            const elAttr = el.getAttribute(attr);
-                            if (elAttr || elAttr === 'like') return 2; // Truly liked
-                            return 0;
-                        },
-                        comment_id,
-                        VnExpressSelectors.like.like_attribute,
-                    );
-                }
-
-                finalResult.push(result);
-            }
-
-            return finalResult;
-        };
+                },
+        );
     }
 
-    /**
-     * Comment service for comment API
-     */
-    async commentVnex({ url, isVisual, profiles }: VnExpressCommentQuery, body: string) {
-        // Read profiles
-        const cookiesList = this._readCookieProfiles();
-
-        // Mapping profile into comment
-        const comments = body.split('\n').map(c => c.trim());
+    async commentVnex({ url, profileNum, isVisual }: VnExpressCommentQuery, body: string) {
+        const cookiess = readCookies(EServiceKind.VNEXPRESS);
+        const comments = body
+            .split('\n')
+            .map(c => c.trim())
+            .filter(c => c.length > 0);
         const commentVsProfiles = comments.map((comment, idx) => ({
             comment,
-            cookies: cookiesList[idx % cookiesList.length],
+            cookies: cookiess[(idx % cookiess.length) + 1],
         }));
 
-        // Initial result
+        const ppt = new PuppeteerHelper(profileNum, !isVisual);
+
         const result: CommentResultType = [];
 
-        // Init browser pool
-        const cluster = await Cluster.launch({
-            concurrency: Cluster.CONCURRENCY_BROWSER,
-            maxConcurrency: profiles,
-            puppeteerOptions: { headless: !isVisual },
-            puppeteer,
-            monitor: true,
-        });
-
-        // Run comment in parallel
-        for (const commentVsProfile of chunking(commentVsProfiles, profiles)) {
-            const promises: Promise<void>[] = commentVsProfile.map(cvp =>
-                cluster.execute(
-                    {
-                        url,
-                        cookies: cvp.cookies,
-                        commentFunction: this.__runComment(cvp.comment),
-                        retryPromise,
-                    } as PuppeteerClusterCommentDataType,
-                    this._commentVnex,
-                ),
-            );
-
-            // Avoid error
-            const responses = await Promise.allSettled(promises);
+        const commentVsProfileChunk = chunking(commentVsProfiles, profileNum);
+        for (let i = 0; i < commentVsProfileChunk.length; i++) {
+            console.log(`[VNExpress] Running at chunk ${i + 1} / ${commentVsProfileChunk.length}`);
+            await ppt.initInstances();
+            const responses = await ppt.runInstances(this._commentVnex(url, commentVsProfileChunk[i]));
             responses.forEach((r, idx) =>
-                r.status === 'rejected'
-                    ? result.push({ comment: commentVsProfile[idx].comment, success: false, message: r.reason })
-                    : result.push({ comment: commentVsProfile[idx].comment, success: true }),
+                r[0]
+                    ? result.push({ comment: commentVsProfileChunk[i][idx].comment, success: true })
+                    : result.push({ comment: commentVsProfileChunk[i][idx].comment, success: false }),
             );
+            await ppt.killInstances();
         }
 
-        await cluster.idle();
-        await cluster.close();
-
+        fs.writeFileSync('VNExpress-comment.json', JSON.stringify(result, undefined, 2));
         return result;
     }
 
-    private async _commentVnex({
-        page,
-        data: { url, cookies, commentFunction, retryPromise },
-    }: {
-        page: Page;
-        data: PuppeteerClusterCommentDataType;
-    }) {
-        // Set profile for current browser session
-        await page.setCookie(...cookies);
+    private _commentVnex(
+        url: string,
+        commentVsProfiles: { comment: string; cookies: CookieParam[] }[],
+        waitForOptions: WaitForOptions = {
+            waitUntil: 'networkidle2',
+            timeout: 3 * 60 * 1000,
+        },
+    ) {
+        return commentVsProfiles.map(
+            commentVsProfile =>
+                async function(page: Page) {
+                    const run = async () => {
+                        await page.deleteCookie();
+                        await page.setCookie(...commentVsProfile.cookies);
 
-        // Try navigating to destination URL
-        const navigate = async () => {
-            try {
-                // Currently set timeout 5mins for avoiding error
-                await page.goto(url, { waitUntil: 'networkidle2', timeout: 5 * 60 * 1000 });
-                return true;
-            } catch (err) {
-                return false;
-            }
-        };
-        await retryPromise(navigate, flag => flag, 5, 1_000);
-        await new Promise(rs => setTimeout(rs, 1_000));
+                        // Navigate to destination URL
+                        await page.goto(url, waitForOptions);
 
-        // Try comment
-        const comment = async () => await commentFunction(page);
-        const result = await retryPromise(comment, result => result, 5, 1_000);
-        await new Promise(rs => setTimeout(rs, 1_000));
+                        // Run comments
+                        while (true) {
+                            await waiter();
+                            await page.click(VnExpressSelectors.comment.text_area, { clickCount: 3 });
+                            await page.type(VnExpressSelectors.comment.text_area, commentVsProfile.comment);
+                            const commentTyped = await page.$eval(
+                                VnExpressSelectors.comment.text_area,
+                                (el, comment) => {
+                                    const message = (<HTMLTextAreaElement>el).value;
+                                    if (message === comment) return true;
+                                    return false;
+                                },
+                                commentVsProfile.comment,
+                            );
+                            if (commentTyped) break;
+                        }
+                        await waiter();
 
-        return result;
-    }
+                        await page.click(VnExpressSelectors.comment.submit_button);
+                        await waiter();
 
-    private __runComment(comment: string) {
-        return async function(page: Page) {
-            try {
-                while (true) {
-                    await waiter();
-                    await page.click(VnExpressSelectors.comment.text_area, { clickCount: 3 });
-                    await page.type(VnExpressSelectors.comment.text_area, comment);
-                    const commentTyped = await page.$eval(
-                        VnExpressSelectors.comment.text_area,
-                        (el, comment) => {
-                            const message = (<HTMLTextAreaElement>el).value;
-                            if (message === comment) return true;
-                            return false;
-                        },
-                        comment,
-                    );
-                    if (commentTyped) break;
-                }
+                        return true;
+                    };
 
-                await waiter();
-                await page.click(VnExpressSelectors.comment.submit_button);
-                return true;
-            } catch (err) {
-                return false;
-            }
-        };
+                    return await retryPromise<boolean | undefined>(run, () => true);
+                },
+        );
     }
 }

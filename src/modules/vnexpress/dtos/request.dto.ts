@@ -9,12 +9,12 @@ export class VnExpressLikeQuery {
     @IsNotEmpty()
     url: string;
 
-    @ApiProperty({ description: 'Số lượng profile sẽ thực thi đồng thời (min: 1)' })
+    @ApiProperty({ description: 'Số lượng browser sẽ thực thi đồng thời (min: 1)' })
     @Min(1)
     @IsNumber()
     @Transform(({ value }) => Number(value))
     @IsNotEmpty()
-    profiles: number;
+    profileNum: number;
 
     @ApiProperty({
         description: 'Số like cần tăng tối đa. Nếu không có giá trị, toàn bộ profile sẽ được sử dụng.',
@@ -43,7 +43,7 @@ export class VnExpressCommentQuery {
     @IsNumber()
     @Transform(({ value }) => Number(value))
     @IsNotEmpty()
-    profiles: number;
+    profileNum: number;
 
     @ApiProperty({ description: 'Hiển thị trình duyệt ảo', default: true })
     @IsBoolean()
