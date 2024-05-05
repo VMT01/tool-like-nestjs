@@ -238,6 +238,8 @@ export class VnExpressService {
                     : results.push({ comment: commentVsProfileChunk[i][idx].comment, success: false }),
             );
         }
+
+        return results;
     }
 
     private _commentVnex(
@@ -271,7 +273,12 @@ export class VnExpressService {
             await waiter();
 
             console.log(`[${id}] Click submit comment`);
-            // await page.click(VnExpressSelectors.comment.submit_button);
+            await Promise.all([
+                page.click(VnExpressSelectors.comment.submit_button),
+                page.waitForResponse(
+                    r => r.url() === 'https://usi-saas.vnexpress.net/index/add/v2' && r.status() === 200,
+                ),
+            ]);
             await waiter();
 
             // Logout
