@@ -2,7 +2,8 @@
     "like": {
         "load_more": "#show_more_coment",
         "like_attribute": "data-name",
-        "comment_item": "div.comment_item"
+        "comment_item": "div.comment_item",
+        "noti": ".mfp-close"
     },
     "comment": {
         "text_area": "#txtComment",

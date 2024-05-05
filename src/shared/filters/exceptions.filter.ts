@@ -3,7 +3,7 @@ import { HttpAdapterHost } from '@nestjs/core';
 
 @Catch()
 export class ExceptionsFilter implements ExceptionFilter {
-    constructor(private readonly httpAdapterHost: HttpAdapterHost) { }
+    constructor(private readonly httpAdapterHost: HttpAdapterHost) {}
 
     catch(exception: unknown, host: ArgumentsHost): void {
         console.log('[ERROR - exceptions.filter.ts:9]', exception);
@@ -17,13 +17,13 @@ export class ExceptionsFilter implements ExceptionFilter {
         const responseBody =
             exception instanceof HttpException
                 ? {
-                    statusCode: exception.getStatus(),
-                    response: exception.getResponse(),
-                }
+                      statusCode: exception.getStatus(),
+                      response: exception.getResponse(),
+                  }
                 : {
-                    statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-                    response: (exception as Error).message,
-                };
+                      statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+                      response: (exception as Error).message,
+                  };
 
         httpAdapter.reply(ctx.getResponse(), responseBody, responseBody.statusCode);
     }
