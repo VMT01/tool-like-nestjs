@@ -11,6 +11,7 @@ import { readCookies } from '@shared/helpers/profile.helper';
 import { retry, waiter } from '@shared/helpers/promise.helper';
 import { PuppeteerHelper } from '@shared/helpers/puppeteer.helper';
 
+import { VnExpressCommentQuery } from './dtos/request-comment.dto';
 import { VnExpressLikeQuery } from './dtos/request-like.dto';
 import { VNExDataItem, VNExResponse } from './vnexpress.type';
 
@@ -193,6 +194,89 @@ export class VnExpressService {
             // Logout
             await page.deleteCookie(...cookies);
             return { results, breakFlag };
+        };
+    }
+
+    async commentVnex({ url, browserNum, isVisual }: VnExpressCommentQuery, body: string) {
+        const profiles = readCookies(EServiceKind.VNEXPRESS);
+        const comments = body
+            .split('\n')
+            .map(c => c.trim())
+            .filter(c => c.length > 0);
+        const commentVsProfiles = comments.map((comment, idx) => ({
+            comment,
+            cookies: profiles[(idx % profiles.length) + 1],
+        }));
+
+        // Init results
+        const results: { comment: string; success: boolean }[] = [];
+
+        // Init puppeteer instances
+        const ppts: PuppeteerHelper[] = [];
+        for (let i = 0; i < browserNum; i++) {
+            ppts.push(new PuppeteerHelper(!isVisual));
+        }
+
+        const commentVsProfileChunk = chunking(commentVsProfiles, browserNum);
+        for (let i = 0; i < commentVsProfileChunk.length; i++) {
+            console.log(`[VNExpress] Running at chunk ${i + 1} / ${commentVsProfileChunk.length}`);
+            const promises = commentVsProfileChunk[i].map(async (cvp, idx) => {
+                await ppts[idx].start();
+                const result = await retry(
+                    `Browser #${idx}`,
+                    async () => await ppts[idx].run(this._commentVnex(`Browser #${idx}`, url, cvp)),
+                    () => true,
+                );
+                await ppts[idx].stop();
+                return result;
+            });
+
+            const result = await Promise.all(promises);
+            result.forEach((r, idx) =>
+                r
+                    ? results.push({ comment: commentVsProfileChunk[i][idx].comment, success: true })
+                    : results.push({ comment: commentVsProfileChunk[i][idx].comment, success: false }),
+            );
+        }
+    }
+
+    private _commentVnex(
+        id: any,
+        url: string,
+        { comment, cookies }: { comment: string; cookies: CookieParam[] },
+        waitForOptions: WaitForOptions = { waitUntil: 'networkidle2', timeout: 1 * 60 * 1000 },
+    ) {
+        return async function(page: Page) {
+            // Login
+            await page.setCookie(...cookies);
+            await page.goto(url, waitForOptions);
+
+            // Run comments
+            console.log(`[${id}] Typing comment: ${comment}`);
+            while (true) {
+                await waiter();
+                await page.click(VnExpressSelectors.comment.text_area, { clickCount: 3 });
+                await page.type(VnExpressSelectors.comment.text_area, comment);
+                const commentTyped = await page.$eval(
+                    VnExpressSelectors.comment.text_area,
+                    (el, comment) => {
+                        const message = (<HTMLTextAreaElement>el).value;
+                        if (message === comment) return true;
+                        return false;
+                    },
+                    comment,
+                );
+                if (commentTyped) break;
+            }
+            await waiter();
+
+            console.log(`[${id}] Click submit comment`);
+            // await page.click(VnExpressSelectors.comment.submit_button);
+            await waiter();
+
+            // Logout
+            await page.deleteCookie(...cookies);
+            return true;
         };
     }
 }
