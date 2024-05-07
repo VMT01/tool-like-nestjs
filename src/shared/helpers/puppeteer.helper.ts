@@ -9,10 +9,13 @@ export class PuppeteerHelper {
         this._headless = headless;
     }
 
-    async start() {
+    async start(proxy?: string, username?: string, password?: string) {
+        const args = ['--incognito'];
+        if (proxy) args.push(`--proxy-server=${proxy}`);
+
         this._browser = await puppeteer.launch({
             headless: this._headless,
-            args: ['--incognito'],
+            args,
             defaultViewport: {
                 width: 1024,
                 height: 1280,
@@ -21,6 +24,8 @@ export class PuppeteerHelper {
             },
         });
         [this._page] = await this._browser.pages();
+
+        if (proxy) await this._page.authenticate({ username, password });
     }
 
     async stop() {

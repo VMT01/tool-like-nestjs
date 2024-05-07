@@ -1,21 +1,11 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsUrl, Min } from 'class-validator';
+import { IsNumber, IsOptional } from 'class-validator';
 
 import { ApiProperty } from '@nestjs/swagger';
 
-export class VnExpressLikeQuery {
-    @ApiProperty({ description: 'Link bài viết cần like' })
-    @IsUrl()
-    @IsNotEmpty()
-    url: string;
+import { VnExpressQuery } from './request.dto';
 
-    @ApiProperty({ description: 'Số lượng browser sẽ thực thi đồng thời (min: 1)' })
-    @Min(1)
-    @IsNumber()
-    @Transform(({ value }) => Number(value))
-    @IsNotEmpty()
-    browserNum: number;
-
+export class VnExpressLikeQuery extends VnExpressQuery {
     @ApiProperty({
         description: 'Số like cần tăng tối đa. Nếu không có giá trị, toàn bộ profile sẽ được sử dụng.',
         required: false,
@@ -24,10 +14,4 @@ export class VnExpressLikeQuery {
     @Transform(({ value }) => Number(value))
     @IsOptional()
     likeLimit: number;
-
-    @ApiProperty({ description: 'Hiển thị trình duyệt ảo', default: true })
-    @IsBoolean()
-    @Transform(({ value }) => value === 'true')
-    @IsNotEmpty()
-    isVisual: boolean;
 }

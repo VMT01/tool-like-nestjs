@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { CookieParam, ElementHandle, Page, WaitForOptions } from 'puppeteer';
 
 import { Injectable } from '@nestjs/common';
@@ -17,7 +18,12 @@ import { VNExDataItem, VNExResponse } from './vnexpress.type';
 
 @Injectable()
 export class VnExpressService {
-    async likeVnex({ url, browserNum, likeLimit, isVisual }: VnExpressLikeQuery, body: string) {
+    async likeVnex(
+        { url, browserNum, likeLimit, isVisual, proxyServer, proxyUsername, proxyPassword }: VnExpressLikeQuery,
+        body: string,
+    ) {
+        if (proxyServer && (!proxyUsername || !proxyPassword)) throw new Error('Thiếu proxy username/password');
+
         const profiles = readCookies(EServiceKind.VNEXPRESS);
 
         // Fetch VNExpress comments
@@ -38,9 +44,9 @@ export class VnExpressService {
         const results = vnExComments.map(v => ({
             comment: v.content,
             like: v.userlike,
-            success: 0,
+            accountUsed: 0,
+            liked: 0,
         }));
-        let totalSuccess = 0;
 
         const profileChunk = chunking(profiles, browserNum);
         let breakFlag = false;
@@ -48,7 +54,7 @@ export class VnExpressService {
         for (let i = 0; i < profileChunk.length; i++) {
             console.log(`[VNExpress] Running at chunk ${i + 1} / ${profileChunk.length}`);
             const promises = profileChunk[i].map(async (profile, idx) => {
-                await ppts[idx].start();
+                await ppts[idx].start(proxyServer, proxyUsername, proxyPassword);
                 await waiter();
                 const result = await retry(
                     `Browser #${idx}`,
@@ -63,19 +69,21 @@ export class VnExpressService {
 
             const result = await Promise.all(promises);
             for (const r of result) {
-                if (!r) continue;
-
-                r.results.forEach((v, idx) => {
-                    if (v === 1) {
-                        results[idx].success++;
-                        totalSuccess++;
+                for (let j = 0; j < vnExComments.length; j++) {
+                    if (!r) {
+                        results[j].accountUsed++;
+                        continue;
                     }
-                });
-                breakFlag = breakFlag || r.breakFlag;
+
+                    if (r.results[j].flag) results[j].accountUsed++;
+                    else results[j].liked = r.results[j].liked;
+                    breakFlag = breakFlag || r.breakFlag;
+                }
             }
             if (breakFlag) break;
         }
 
+        const totalSuccess = results.reduce((acc, cur) => acc + cur.liked, 0);
         return { totalSuccess, results };
     }
 
@@ -88,14 +96,14 @@ export class VnExpressService {
             .filter(c => c.length > 0);
         const id = url.split('.')[1].split('-').at(-1);
         const commentPromises = [1, 2, 3].map(v =>
-            fetch(
+            axios(
                 `https://usi-saas.vnexpress.net/index/get?objectid=${id}&objecttype=${v}&siteid=1000000&offset=0&limit=500`,
             ),
         );
 
         // Fetch comment list from VNExpress
         const response = await Promise.all(commentPromises);
-        const data: VNExResponse[] = await Promise.all(response.map(r => r.json()));
+        const data: VNExResponse[] = response.map(r => r.data); //await Promise.all;
         const listCommentApi = data.reduce((acc: VNExDataItem[], v: VNExResponse) => acc.concat(v.data.items), []);
 
         // Filter for comments that have the same content as requested
@@ -112,9 +120,9 @@ export class VnExpressService {
         cookies: CookieParam[],
         comments: VNExDataItem[],
         likeLimit?: number,
-        waitForOptions: WaitForOptions = { waitUntil: 'networkidle2', timeout: 1 * 60 * 1000 },
+        waitForOptions: WaitForOptions = { waitUntil: 'networkidle2', timeout: 3 * 60 * 1000 },
     ) {
-        return async function(page: Page) {
+        return async function (page: Page) {
             let breakFlag = false;
 
             // Login
@@ -133,7 +141,7 @@ export class VnExpressService {
             }
 
             // Like
-            const results: number[] = [];
+            const results: { flag: boolean; liked: number }[] = [];
             for (const { comment_id, userlike } of comments) {
                 // Scroll to view;
                 await page.$eval(`a[id="${comment_id}"]`, el =>
@@ -145,10 +153,11 @@ export class VnExpressService {
                 const currentLike = await page.$eval(`div.reactions-total[rel="${comment_id}"]`, el =>
                     Number(el.innerText.split('.').join('')),
                 );
-                if (likeLimit !== undefined && currentLike - userlike >= likeLimit) {
+                const liked = currentLike - userlike;
+                if (likeLimit !== undefined && liked >= likeLimit) {
                     console.log(`[${id}] Skip ${comment_id} since exceeded like limit`);
                     breakFlag = true;
-                    results.push(0);
+                    results.push({ flag: false, liked });
                     continue;
                 }
 
@@ -162,7 +171,7 @@ export class VnExpressService {
                 // Skip if liked
                 if (buttonAttr && buttonAttr === 'like') {
                     console.log(`[${id}] Skip ${comment_id} since liked`);
-                    results.push(0);
+                    results.push({ flag: false, liked });
                     continue;
                 }
 
@@ -176,15 +185,16 @@ export class VnExpressService {
                         },
                     ),
                 ]);
-                console.log(`[${id}] ${comment_id} like success`);
-                results.push(1);
-                await waiter();
 
                 const noti = await page.$(VnExpressSelectors.like.noti);
                 if (noti) {
                     console.log(`[${id}] Closing block noti...`);
                     await page.click(VnExpressSelectors.like.noti);
-                    results.push(0); // Since we cannot do anything here
+                    results.push({ flag: false, liked }); // Since we cannot do anything here
+                } else {
+                    console.log(`[${id}] ${comment_id} like success`);
+                    results.push({ flag: true, liked });
+                    await waiter();
                 }
             }
 
@@ -197,7 +207,10 @@ export class VnExpressService {
         };
     }
 
-    async commentVnex({ url, browserNum, isVisual }: VnExpressCommentQuery, body: string) {
+    async commentVnex(
+        { url, browserNum, isVisual, proxyServer, proxyUsername, proxyPassword }: VnExpressCommentQuery,
+        body: string,
+    ) {
         const profiles = readCookies(EServiceKind.VNEXPRESS);
         const comments = body
             .split('\n')
@@ -221,7 +234,7 @@ export class VnExpressService {
         for (let i = 0; i < commentVsProfileChunk.length; i++) {
             console.log(`[VNExpress] Running at chunk ${i + 1} / ${commentVsProfileChunk.length}`);
             const promises = commentVsProfileChunk[i].map(async (cvp, idx) => {
-                await ppts[idx].start();
+                await ppts[idx].start(proxyServer, proxyUsername, proxyPassword);
                 const result = await retry(
                     `Browser #${idx}`,
                     async () => await ppts[idx].run(this._commentVnex(`Browser #${idx}`, url, cvp)),
@@ -248,7 +261,7 @@ export class VnExpressService {
         { comment, cookies }: { comment: string; cookies: CookieParam[] },
         waitForOptions: WaitForOptions = { waitUntil: 'networkidle2', timeout: 1 * 60 * 1000 },
     ) {
-        return async function(page: Page) {
+        return async function (page: Page) {
             // Login
             await page.setCookie(...cookies);
             await page.goto(url, waitForOptions);
