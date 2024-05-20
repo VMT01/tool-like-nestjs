@@ -1,4 +1,5 @@
 import axios from 'axios';
+import fs from 'fs';
 import { CookieParam, ElementHandle, Page, WaitForOptions } from 'puppeteer';
 
 import { Injectable } from '@nestjs/common';
@@ -19,7 +20,16 @@ import { VNExDataItem, VNExResponse } from './vnexpress.type';
 @Injectable()
 export class VnExpressService {
     async likeVnex(
-        { url, browserNum, likeLimit, isVisual, proxyServer, proxyUsername, proxyPassword }: VnExpressLikeQuery,
+        {
+            url,
+            browserNum,
+            likeLimit,
+            isVisual,
+            proxyServer,
+            proxyUsername,
+            proxyPassword,
+            continueChunk,
+        }: VnExpressLikeQuery,
         body: string,
     ) {
         if (proxyServer && (!proxyUsername || !proxyPassword)) throw new Error('Thiếu proxy username/password');
@@ -51,8 +61,10 @@ export class VnExpressService {
         const profileChunk = chunking(profiles, browserNum);
         let breakFlag = false;
 
-        for (let i = 0; i < profileChunk.length; i++) {
+        let i = continueChunk ? (fs.existsSync('state.txt') ? Number(fs.readFileSync('state.txt')) : 0) : 0;
+        for (; i < profileChunk.length; i++) {
             console.log(`[VNExpress] Running at chunk ${i + 1} / ${profileChunk.length}`);
+            fs.writeFileSync('state.txt', i.toString());
             const promises = profileChunk[i].map(async (profile, idx) => {
                 await ppts[idx].start(proxyServer, proxyUsername, proxyPassword);
                 await waiter();

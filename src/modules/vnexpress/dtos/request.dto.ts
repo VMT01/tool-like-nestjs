@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString, IsUrl, Min } from 'class-validator';
+import { IsBoolean, IsBooleanString, IsNotEmpty, IsNumber, IsOptional, IsString, IsUrl, Min } from 'class-validator';
 
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -39,4 +39,10 @@ export class VnExpressQuery {
     @IsString()
     @IsOptional()
     proxyPassword: string;
+
+    @ApiProperty({ description: 'Tiếp tục từ chunk đã chạy trước đó', required: false, default: false })
+    @IsBoolean()
+    @Transform(({ value }) => value === 'true')
+    @IsOptional()
+    continueChunk: boolean;
 }

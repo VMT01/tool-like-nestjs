@@ -18,6 +18,7 @@ async function bootstrap() {
     SwaggerModule.setup('/docs', app, SwaggerModule.createDocument(app, new DocumentBuilder().build()));
 
     await app.listen(3000);
-    console.log(`Server is running at http://localhost:3000/docs`);
+    const url = new URL('http://localhost:3000/docs');
+    console.log(`Server is running at ${url}`);
 }
 bootstrap();
