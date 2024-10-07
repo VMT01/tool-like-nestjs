@@ -20,6 +20,8 @@ import { VNExDataItem, VNExResponse } from './vnexpress.type';
 
 @Injectable()
 export class VnExpressService {
+    private _accountPath = path.resolve(process.cwd(), 'accounts', 'vnexpress');
+
     constructor() {}
 
     async likeVnex(
@@ -32,11 +34,10 @@ export class VnExpressService {
             proxyUsername,
             proxyPassword,
             continueChunk,
-            accountPath,
         }: VnExpressLikeQuery,
         body: string,
     ) {
-        const accounts = readUserPass(accountPath).slice(0, 3);
+        const accounts = readUserPass(this._accountPath).slice(0, 3);
         const vnExComments = await this._fetchVnExComments(url, body);
 
         // Init puppeteer instances
@@ -52,17 +53,28 @@ export class VnExpressService {
 
         const accountChunk = chunking(accounts, browserNum);
         let breakFlag = false;
-        for (let i = 0; i < accountChunk.length; i++) {
+
+        let i: number;
+        let data: { like: number; comment: number; vote: number } = { like: 0, comment: 0, vote: 0 };
+        if (!continueChunk || fs.existsSync('state.json')) {
+            i = 0;
+        } else {
+            data = JSON.parse(fs.readFileSync('state.json', 'utf-8'));
+            i = data.like < accountChunk.length ? data.like : 0;
+        }
+        for (; i < accountChunk.length; i++) {
+            data.like = i;
+            fs.writeFileSync('state.json', JSON.stringify(data));
             console.log(`[VNExpress] Running at chunk ${i + 1} / ${accountChunk.length}`);
             const promises = accountChunk[i].map((account, idx) =>
                 this._handleLikeVnex(
                     `Browser #${idx}`,
                     ppts[idx],
-                    proxyServer && { proxyServer, proxyUsername, proxyPassword },
                     url,
                     account,
                     i * browserNum + idx,
                     vnExComments,
+                    proxyServer && { proxyServer, proxyUsername, proxyPassword },
                     likeLimit,
                 ),
             );
@@ -123,11 +135,11 @@ export class VnExpressService {
     private async _handleLikeVnex(
         id: string,
         ppt: PuppeteerHelper,
-        proxy: Proxy,
         url: string,
         profile: { user: string; pass: string },
         profileIndex: number,
         comments: VNExDataItem[],
+        proxy?: Proxy,
         likeLimit?: number,
     ) {
         const cookiesPath = path.resolve(
@@ -146,7 +158,7 @@ export class VnExpressService {
                 id,
                 async () => {
                     try {
-                        await ppt.startLoginBrowser();
+                        await ppt.startLoginBrowser(proxy);
                         await ppt.runOnLoginBrowser(
                             this.__redirect(id, url, 'section.section.page-detail.middle-detail'),
                         );
@@ -175,7 +187,7 @@ export class VnExpressService {
             id,
             async () => {
                 try {
-                    await ppt.startNormalBrowser();
+                    await ppt.startNormalBrowser(proxy);
                     await ppt.runOnNormalBrowser(
                         this.__setCookiesAndRedirect(
                             id,
@@ -402,19 +414,10 @@ export class VnExpressService {
     }
 
     async commentVnex(
-        {
-            url,
-            browserNum,
-            isVisual,
-            proxyServer,
-            proxyUsername,
-            proxyPassword,
-            accountPath,
-            continueChunk,
-        }: VnExpressCommentQuery,
+        { url, browserNum, isVisual, proxyServer, proxyUsername, proxyPassword, continueChunk }: VnExpressCommentQuery,
         body: string,
     ) {
-        const accounts = readUserPass(accountPath).slice(0, 3);
+        const accounts = readUserPass(this._accountPath).slice(0, 3);
         const comments = body
             .split('\n')
             .map(c => c.trim())
@@ -427,18 +430,28 @@ export class VnExpressService {
         const results: { comment: string; success: boolean }[] = [];
 
         const commentChunk = chunking(comments, browserNum);
-        for (let i = 0; i < commentChunk.length; i++) {
+        let i: number;
+        let data: { like: number; comment: number; vote: number } = { like: 0, comment: 0, vote: 0 };
+        if (!continueChunk || fs.existsSync('state.json')) {
+            i = 0;
+        } else {
+            data = JSON.parse(fs.readFileSync('state.json', 'utf-8'));
+            i = data.comment < commentChunk.length ? data.comment : 0;
+        }
+        for (; i < commentChunk.length; i++) {
             console.log(`[VNExpress] Running at chunk ${i + 1} / ${commentChunk.length}`);
+            data.comment = i;
+            fs.writeFileSync('state.json', JSON.stringify(data));
 
             const promises = commentChunk[i].map((comment, idx) =>
                 this._handleCommentVnex(
                     `Browser #${idx}`,
                     ppts[idx],
-                    proxyServer && { proxyServer, proxyUsername, proxyPassword },
                     url,
                     accounts[i * browserNum + idx],
                     i * browserNum + idx,
                     comment,
+                    proxyServer && { proxyServer, proxyUsername, proxyPassword },
                 ),
             );
             const result = await Promise.all(promises);
@@ -455,11 +468,11 @@ export class VnExpressService {
     private async _handleCommentVnex(
         id: string,
         ppt: PuppeteerHelper,
-        proxy: Proxy,
         url: string,
         profile: { user: string; pass: string },
         profileIndex: number,
         comment: string,
+        proxy?: Proxy,
     ) {
         const cookiesPath = path.resolve(
             process.cwd(),
@@ -477,7 +490,7 @@ export class VnExpressService {
                 id,
                 async () => {
                     try {
-                        await ppt.startLoginBrowser();
+                        await ppt.startLoginBrowser(proxy);
                         await ppt.runOnLoginBrowser(
                             this.__redirect(id, url, 'section.section.page-detail.middle-detail'),
                         );
@@ -506,7 +519,7 @@ export class VnExpressService {
             id,
             async () => {
                 try {
-                    await ppt.startNormalBrowser();
+                    await ppt.startNormalBrowser(proxy);
                     await ppt.runOnNormalBrowser(
                         this.__setCookiesAndRedirect(
                             id,
@@ -564,19 +577,10 @@ export class VnExpressService {
     }
 
     async voteVnex(
-        {
-            url,
-            browserNum,
-            isVisual,
-            proxyServer,
-            proxyUsername,
-            proxyPassword,
-            accountPath,
-            continueChunk,
-        }: VnExpressVoteQuery,
+        { url, browserNum, isVisual, proxyServer, proxyUsername, proxyPassword, continueChunk }: VnExpressVoteQuery,
         body: string,
     ) {
-        const accounts = readUserPass(accountPath).slice(0, 3);
+        const accounts = readUserPass(this._accountPath).slice(0, 3);
         const options = body
             .trim()
             .split(',')
@@ -589,17 +593,28 @@ export class VnExpressService {
         let results = 0;
 
         const accountChunk = chunking(accounts, browserNum);
-        for (let i = 0; i < accountChunk.length; i++) {
+        let i: number;
+        let data: { like: number; comment: number; vote: number } = { like: 0, comment: 0, vote: 0 };
+        if (!continueChunk || fs.existsSync('state.json')) {
+            i = 0;
+        } else {
+            data = JSON.parse(fs.readFileSync('state.json', 'utf-8'));
+            i = data.vote < accountChunk.length ? data.vote : 0;
+        }
+        for (; i < accountChunk.length; i++) {
             console.log(`[VNExpress] Running at chunk ${i + 1} / ${accountChunk.length}`);
+            data.vote = i;
+            fs.writeFileSync('state.json', JSON.stringify(data));
+
             const promises = accountChunk[i].map(async (profile, idx) =>
                 this._handleVoteVnex(
                     `Browser #${idx}`,
                     ppts[idx],
-                    proxyServer && { proxyServer, proxyUsername, proxyPassword },
                     url,
                     profile,
                     i * browserNum + idx,
                     options,
+                    proxyServer && { proxyServer, proxyUsername, proxyPassword },
                 ),
             );
             const result = await Promise.all(promises);
@@ -611,11 +626,11 @@ export class VnExpressService {
     private async _handleVoteVnex(
         id: string,
         ppt: PuppeteerHelper,
-        proxy: Proxy,
         url: string,
         profile: { user: string; pass: string },
         profileIndex: number,
         options: number[],
+        proxy?: Proxy,
     ) {
         const cookiesPath = path.resolve(
             process.cwd(),
@@ -633,7 +648,7 @@ export class VnExpressService {
                 id,
                 async () => {
                     try {
-                        await ppt.startLoginBrowser();
+                        await ppt.startLoginBrowser(proxy);
                         await ppt.runOnLoginBrowser(
                             this.__redirect(id, url, 'section.section.page-detail.middle-detail'),
                         );
@@ -662,7 +677,7 @@ export class VnExpressService {
             id,
             async () => {
                 try {
-                    await ppt.startNormalBrowser();
+                    await ppt.startNormalBrowser(proxy);
                     await ppt.runOnNormalBrowser(
                         this.__setCookiesAndRedirect(
                             id,
@@ -673,8 +688,6 @@ export class VnExpressService {
                     );
                     await ppt.runOnNormalBrowser(this.__autoScroll(id));
                     return await ppt.runOnNormalBrowser(this.__vote(id, options));
-                    // await ppt.runOnNormalBrowser(this.__loadmoreComments(id));
-                    // return await ppt.runOnNormalBrowser(this.__like(id, comments, likeLimit));
                 } catch (error) {
                     throw new Error(error);
                 } finally {
@@ -695,6 +708,8 @@ export class VnExpressService {
             await sleep();
 
             const opts = await page.$$('.content_box_category > div.item_row_bx');
+            if (opts.length === 0) return true; // Voted
+
             for (const optIdx of options) {
                 await opts[optIdx - 1].click();
                 await sleep();

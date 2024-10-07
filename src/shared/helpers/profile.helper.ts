@@ -23,7 +23,13 @@ export function readCookies(serviceKind: EServiceKind): CookieParam[][] {
 }
 
 export function readUserPass(accountPath: string) {
-    const accountRaw = fs.readFileSync(accountPath, 'utf-8');
+    if (!fs.existsSync(accountPath)) throw new Error('Đường dẫn accounts/vnexpress không tồn tại');
+
+    const files = fs.readdirSync(accountPath);
+    if (files.length === 0) throw new Error('Không tồn tại danh sách account trong folder accounts/vnexress');
+
+    const accountFile = path.resolve(accountPath, files[0]);
+    const accountRaw = fs.readFileSync(accountFile, 'utf-8');
     const accounts = accountRaw
         .trim()
         .split('\n')

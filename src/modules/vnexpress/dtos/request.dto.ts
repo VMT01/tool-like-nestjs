@@ -1,15 +1,5 @@
 import { Transform } from 'class-transformer';
-import {
-    IsBoolean,
-    IsBooleanString,
-    IsNotEmpty,
-    IsNumber,
-    IsOptional,
-    IsString,
-    IsUrl,
-    Min,
-    ValidateIf,
-} from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString, IsUrl, Min, ValidateIf } from 'class-validator';
 
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -57,9 +47,4 @@ export class VnExpressQuery {
     @Transform(({ value }) => value === 'true')
     @IsOptional()
     continueChunk: boolean;
-
-    @ApiProperty({ description: 'Đường dẫn đến file accounts', required: true })
-    @IsString()
-    @IsNotEmpty()
-    accountPath: string;
 }
