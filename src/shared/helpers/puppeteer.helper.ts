@@ -49,8 +49,8 @@ export class PuppeteerHelper {
     }
 
     async startNormalBrowser(proxy: Proxy) {
-        const args = ['--incognito'];
-        if (proxy) args.push(`--proxy-server=${proxy}`);
+        const args = ['--incognito', '--no-sandbox', '--disable-setuid-sandbox'];
+        if (proxy) args.push(`--proxy-server=${proxy.proxyServer}`);
 
         this._normalBrowser = await puppeteer.launch({
             headless: this._headless,
@@ -63,7 +63,7 @@ export class PuppeteerHelper {
             },
         });
         [this._normalPage] = await this._normalBrowser.pages();
-        await this._loginPage.setUserAgent(randomUseragent.getRandom());
+        await this._normalPage.setUserAgent(randomUseragent.getRandom());
 
         if (proxy) {
             await this._normalPage.authenticate({ username: proxy.proxyUsername, password: proxy.proxyPassword });

@@ -37,7 +37,7 @@ export class VnExpressService {
         }: VnExpressLikeQuery,
         body: string,
     ) {
-        const accounts = readUserPass(this._accountPath).slice(0, 3);
+        const accounts = readUserPass(this._accountPath);
         const vnExComments = await this._fetchVnExComments(url, body);
 
         // Init puppeteer instances
@@ -160,10 +160,17 @@ export class VnExpressService {
                     try {
                         await ppt.startLoginBrowser(proxy);
                         await ppt.runOnLoginBrowser(
-                            this.__redirect(id, url, 'section.section.page-detail.middle-detail'),
+                            this.__redirect(
+                                id,
+                                url,
+                                'section.section.page-detail.middle-detail',
+                                proxy && 10 * 60 * 1000,
+                            ),
                         );
                         await ppt.runOnLoginBrowser(this.__autoScroll(id));
-                        await ppt.runOnLoginBrowser(this.__login(id, profile, profileIndex, EMethod.LIKE));
+                        await ppt.runOnLoginBrowser(
+                            this.__login(id, profile, profileIndex, EMethod.LIKE, proxy && 2 * 60 * 1000),
+                        );
                         await sleep(5000);
                         return true;
                     } catch (error) {
@@ -194,11 +201,12 @@ export class VnExpressService {
                             url,
                             'section.section.page-detail.middle-detail',
                             JSON.parse(cookies),
+                            proxy && 6 * 60 * 1000,
                         ),
                     );
                     await ppt.runOnNormalBrowser(this.__autoScroll(id));
-                    await ppt.runOnNormalBrowser(this.__loadmoreComments(id));
-                    return await ppt.runOnNormalBrowser(this.__like(id, comments, likeLimit));
+                    await ppt.runOnNormalBrowser(this.__loadmoreComments(id, proxy && 6 * 60 * 1000));
+                    return await ppt.runOnNormalBrowser(this.__like(id, comments, likeLimit, proxy && 6 * 60 * 1000));
                 } catch (error) {
                     throw new Error(error);
                 } finally {
@@ -210,18 +218,24 @@ export class VnExpressService {
         return result;
     }
 
-    private __redirect(id: string, url: string, selector: string) {
+    private __redirect(id: string, url: string, selector: string, timeout = 3 * 60 * 1000) {
         console.log(`[${id}] Redirecting to:`, url);
 
         return async function (page: PageWithCursor) {
             await Promise.race([
                 page.goto(url, { waitUntil: 'load' }),
-                page.waitForSelector(selector, { timeout: 3 * 60 * 1000 }),
+                page.waitForSelector(selector, { timeout }),
             ]).catch(_ => console.log(`[${id} - ERROR] Timeout -> IGNORE`));
         };
     }
 
-    private __setCookiesAndRedirect(id: string, url: string, selector: string, cookies: Cookie[]) {
+    private __setCookiesAndRedirect(
+        id: string,
+        url: string,
+        selector: string,
+        cookies: Cookie[],
+        timeout = 3 * 60 * 1000,
+    ) {
         return async function (page: Page) {
             console.log(`[${id}] Found cookies! Setting cookies...`);
             await page.setCookie(...cookies);
@@ -229,12 +243,18 @@ export class VnExpressService {
             console.log(`[${id}] Redirecting to:`, url);
             await Promise.race([
                 page.goto(url, { waitUntil: 'load' }),
-                page.waitForSelector(selector, { timeout: 3 * 60 * 1000 }),
+                page.waitForSelector(selector, { timeout }),
             ]).catch(_ => console.log(`[${id} - ERROR] Timeout -> IGNORE`));
         };
     }
 
-    private __login(id: string, { user, pass }: { user: string; pass: string }, profileIndex: number, method: EMethod) {
+    private __login(
+        id: string,
+        { user, pass }: { user: string; pass: string },
+        profileIndex: number,
+        method: EMethod,
+        timeout = 30 * 1000,
+    ) {
         console.log(`[${id}] Logging in...`);
         const cookiesPath = path.resolve(
             process.cwd(),
@@ -300,11 +320,12 @@ export class VnExpressService {
                         }
                     }
                 }),
-                page.waitForNavigation(),
-            ]).catch(_ => {});
+                page.waitForNavigation({ timeout }),
+            ]).catch(_ => console.log(`[${id}] Login timeout -> IGNORE`));
             const _ = await page.$('.log_txt');
             if (!!_) throw new Error('Login failed!');
             await sleep(5000);
+
             // Login success, saving cookies for later
             console.log(`[${id}] Saving cookies for profile #${profileIndex} at path: ${cookiesPath}`);
             const cookies = await page.cookies();
@@ -336,7 +357,7 @@ export class VnExpressService {
         };
     }
 
-    private __loadmoreComments(id: string) {
+    private __loadmoreComments(id: string, timeout = 3 * 60 * 1000) {
         console.log(`[${id}] Loading more...`);
 
         return async function (page: Page) {
@@ -344,14 +365,14 @@ export class VnExpressService {
             while ((_ = await page.$('#show_more_coment'))) {
                 await Promise.all([
                     page.click('#show_more_coment'),
-                    page.waitForSelector('#show_more_coment', { timeout: 3 * 60 * 1000 }),
+                    page.waitForSelector('#show_more_coment', { timeout }),
                 ]);
                 await sleep();
             }
         };
     }
 
-    private __like(id: string, comments: VNExDataItem[], likeLimit?: number) {
+    private __like(id: string, comments: VNExDataItem[], likeLimit?: number, timeout = 3 * 60 * 1000) {
         console.log(`[${id}] Liking comments...`);
 
         let breakFlag = false;
@@ -393,7 +414,7 @@ export class VnExpressService {
                     page.$eval(`a[id="${comment_id}"]`, e => e.click()),
                     page.waitForResponse(
                         r => r.url() === 'https://usi-saas.vnexpress.net/post/cmt/like' && r.status() === 200,
-                        { timeout: 3 * 60 * 1000 },
+                        { timeout },
                     ),
                 ]);
 
@@ -407,6 +428,8 @@ export class VnExpressService {
                     results.push({ flag: true, liked });
                     await sleep();
                 }
+
+                await sleep();
             }
 
             return { results, breakFlag };
@@ -417,7 +440,7 @@ export class VnExpressService {
         { url, browserNum, isVisual, proxyServer, proxyUsername, proxyPassword, continueChunk }: VnExpressCommentQuery,
         body: string,
     ) {
-        const accounts = readUserPass(this._accountPath).slice(0, 3);
+        const accounts = readUserPass(this._accountPath);
         const comments = body
             .split('\n')
             .map(c => c.trim())
@@ -492,10 +515,17 @@ export class VnExpressService {
                     try {
                         await ppt.startLoginBrowser(proxy);
                         await ppt.runOnLoginBrowser(
-                            this.__redirect(id, url, 'section.section.page-detail.middle-detail'),
+                            this.__redirect(
+                                id,
+                                url,
+                                'section.section.page-detail.middle-detail',
+                                proxy && 10 * 60 * 1000,
+                            ),
                         );
                         await ppt.runOnLoginBrowser(this.__autoScroll(id));
-                        await ppt.runOnLoginBrowser(this.__login(id, profile, profileIndex, EMethod.COMMENT));
+                        await ppt.runOnLoginBrowser(
+                            this.__login(id, profile, profileIndex, EMethod.COMMENT, proxy && 2 * 60 * 1000),
+                        );
                         await sleep(5000);
                         return true;
                     } catch (error) {
@@ -526,10 +556,11 @@ export class VnExpressService {
                             url,
                             'section.section.page-detail.middle-detail',
                             JSON.parse(cookies),
+                            proxy && 6 * 60 * 1000,
                         ),
                     );
                     await ppt.runOnNormalBrowser(this.__autoScroll(id));
-                    return await ppt.runOnNormalBrowser(this.__comment(id, comment));
+                    return await ppt.runOnNormalBrowser(this.__comment(id, comment, proxy && 6 * 60 * 1000));
                 } catch (error) {
                     throw new Error(error);
                 } finally {
@@ -541,7 +572,7 @@ export class VnExpressService {
         return result;
     }
 
-    private __comment(id: string, comment: string) {
+    private __comment(id: string, comment: string, timeout = 3 * 60 * 1000) {
         return async function (page: Page) {
             console.log(`[${id}] Typing comment...`);
             while (true) {
@@ -568,6 +599,7 @@ export class VnExpressService {
                 page.click('#comment_post_button'),
                 page.waitForResponse(
                     r => r.url() === 'https://usi-saas.vnexpress.net/index/add/v2' && r.status() === 200,
+                    { timeout },
                 ),
             ]);
             await sleep();
@@ -580,7 +612,7 @@ export class VnExpressService {
         { url, browserNum, isVisual, proxyServer, proxyUsername, proxyPassword, continueChunk }: VnExpressVoteQuery,
         body: string,
     ) {
-        const accounts = readUserPass(this._accountPath).slice(0, 3);
+        const accounts = readUserPass(this._accountPath);
         const options = body
             .trim()
             .split(',')
@@ -650,10 +682,17 @@ export class VnExpressService {
                     try {
                         await ppt.startLoginBrowser(proxy);
                         await ppt.runOnLoginBrowser(
-                            this.__redirect(id, url, 'section.section.page-detail.middle-detail'),
+                            this.__redirect(
+                                id,
+                                url,
+                                'section.section.page-detail.middle-detail',
+                                proxy && 10 * 60 * 1000,
+                            ),
                         );
                         await ppt.runOnLoginBrowser(this.__autoScroll(id));
-                        await ppt.runOnLoginBrowser(this.__login(id, profile, profileIndex, EMethod.VOTE));
+                        await ppt.runOnLoginBrowser(
+                            this.__login(id, profile, profileIndex, EMethod.VOTE, proxy && 2 * 60 * 1000),
+                        );
                         await sleep(5000);
                         return true;
                     } catch (error) {
@@ -684,10 +723,11 @@ export class VnExpressService {
                             url,
                             'section.section.page-detail.middle-detail',
                             JSON.parse(cookies),
+                            proxy && 6 * 60 * 1000,
                         ),
                     );
                     await ppt.runOnNormalBrowser(this.__autoScroll(id));
-                    return await ppt.runOnNormalBrowser(this.__vote(id, options));
+                    return await ppt.runOnNormalBrowser(this.__vote(id, options, proxy && 6 * 60 * 1000));
                 } catch (error) {
                     throw new Error(error);
                 } finally {
@@ -699,7 +739,7 @@ export class VnExpressService {
         return result;
     }
 
-    private __vote(id: string, options: number[]) {
+    private __vote(id: string, options: number[], timeout = 3 * 60 * 1000) {
         return async function (page: Page) {
             console.log(`[${id}] Select options...`);
             await page.$eval(`div[id="boxthamdoykien"]`, el =>
@@ -719,8 +759,8 @@ export class VnExpressService {
             await sleep(5000);
             await Promise.all([
                 page.click(`#btn_add_vote_53360`),
-                page.waitForResponse(r => r.url() === 'https://usi-saas.vnexpress.net/vote/insertvote'),
-                page.waitForResponse(r => r.url() === 'https://usi-saas.vnexpress.net/api/cf'),
+                page.waitForResponse(r => r.url() === 'https://usi-saas.vnexpress.net/vote/insertvote', { timeout }),
+                page.waitForResponse(r => r.url() === 'https://usi-saas.vnexpress.net/api/cf', { timeout }),
             ]);
             await sleep();
 
