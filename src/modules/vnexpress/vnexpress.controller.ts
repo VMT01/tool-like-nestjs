@@ -35,7 +35,6 @@ export class VnExpressController {
     @ApiOperation({ summary: 'Vote VNExpress' })
     @ApiConsumes('text/plain')
     voteVnex(@Query() query: VnExpressVoteQuery, @Body() body: string) {
-        console.log(query, body);
         return this.vnexService.voteVnex(query, body);
     }
 }

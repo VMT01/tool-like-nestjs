@@ -56,19 +56,23 @@ export class VnExpressService {
 
         let i: number;
         let data: { like: number; comment: number; vote: number } = { like: 0, comment: 0, vote: 0 };
-        if (!continueChunk || fs.existsSync('state.json')) {
+        let totalAccountUsed = 0;
+        let totalLikeSuccess = 0;
+
+        const stateFilePath = 'state.json';
+        if (!continueChunk || !fs.existsSync(stateFilePath)) {
             i = 0;
         } else {
-            data = JSON.parse(fs.readFileSync('state.json', 'utf-8'));
-            i = data.like < accountChunk.length ? data.like : 0;
+            data = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8'));
+            i = data.like + 1;
         }
         for (; i < accountChunk.length; i++) {
             data.like = i;
             fs.writeFileSync('state.json', JSON.stringify(data));
+
             console.log(`[VNExpress] Running at chunk ${i + 1} / ${accountChunk.length}`);
             const promises = accountChunk[i].map((account, idx) =>
                 this._handleLikeVnex(
-                    `Browser #${idx}`,
                     ppts[idx],
                     url,
                     account,
@@ -83,13 +87,21 @@ export class VnExpressService {
                 for (let j = 0; j < vnExComments.length; j++) {
                     if (!r) {
                         results[j].accountUsed++;
+                        totalAccountUsed++;
                         continue;
                     }
-                    if (r.results[j].flag) results[j].accountUsed++;
-                    else results[j].liked = r.results[j].liked;
+                    if (r.results[j].flag) {
+                        results[j].accountUsed++;
+                        totalAccountUsed++;
+                    } else {
+                        results[j].liked = r.results[j].liked;
+                        totalLikeSuccess++;
+                    }
                     breakFlag = breakFlag || r.breakFlag;
                 }
             }
+
+            console.log(`${totalLikeSuccess} like success/${totalAccountUsed} account used`);
             if (breakFlag) break;
         }
         const totalSuccess = results.reduce((acc, cur) => acc + cur.liked, 0);
@@ -97,8 +109,6 @@ export class VnExpressService {
     }
 
     private async _fetchVnExComments(url: string, body: string) {
-        console.log('[VNExpressService] Fetching VNExpress comments');
-
         const comments = body
             .split('\n')
             .map(c => c.trim())
@@ -127,13 +137,11 @@ export class VnExpressService {
 
             return vnExComments;
         } catch (err) {
-            console.log('[VNExpressService - ERROR]', err.message);
             throw new Error(err);
         }
     }
 
     private async _handleLikeVnex(
-        id: string,
         ppt: PuppeteerHelper,
         url: string,
         profile: { user: string; pass: string },
@@ -150,26 +158,19 @@ export class VnExpressService {
             EMethod.LIKE,
             `(${profileIndex}).json`,
         );
+
         let loginSuccess: boolean | undefined = false;
         if (!fs.existsSync(cookiesPath)) {
-            id = `${id} - Bypass CloudFlare`;
-            console.log(`[${id}] Cookies not found. Logging in...`);
             loginSuccess = await retry(
-                id,
                 async () => {
                     try {
                         await ppt.startLoginBrowser(proxy);
                         await ppt.runOnLoginBrowser(
-                            this.__redirect(
-                                id,
-                                url,
-                                'section.section.page-detail.middle-detail',
-                                proxy && 10 * 60 * 1000,
-                            ),
+                            this.__redirect(url, 'section.section.page-detail.middle-detail', proxy && 10 * 60 * 1000),
                         );
-                        await ppt.runOnLoginBrowser(this.__autoScroll(id));
+                        await ppt.runOnLoginBrowser(this.__autoScroll());
                         await ppt.runOnLoginBrowser(
-                            this.__login(id, profile, profileIndex, EMethod.LIKE, proxy && 2 * 60 * 1000),
+                            this.__login(profile, profileIndex, EMethod.LIKE, proxy && 2 * 60 * 1000),
                         );
                         await sleep(5000);
                         return true;
@@ -183,30 +184,24 @@ export class VnExpressService {
             );
         }
 
-        if (loginSuccess === undefined) {
-            console.log(`[${id}] Login failed.`);
-            return undefined;
-        }
+        if (loginSuccess === undefined) return undefined;
 
-        id = `${id} - Normal`;
         const cookies = fs.readFileSync(cookiesPath, { encoding: 'utf-8' });
         const result = await retry(
-            id,
             async () => {
                 try {
                     await ppt.startNormalBrowser(proxy);
                     await ppt.runOnNormalBrowser(
                         this.__setCookiesAndRedirect(
-                            id,
                             url,
                             'section.section.page-detail.middle-detail',
                             JSON.parse(cookies),
                             proxy && 6 * 60 * 1000,
                         ),
                     );
-                    await ppt.runOnNormalBrowser(this.__autoScroll(id));
-                    await ppt.runOnNormalBrowser(this.__loadmoreComments(id, proxy && 6 * 60 * 1000));
-                    return await ppt.runOnNormalBrowser(this.__like(id, comments, likeLimit, proxy && 6 * 60 * 1000));
+                    await ppt.runOnNormalBrowser(this.__autoScroll());
+                    await ppt.runOnNormalBrowser(this.__loadmoreComments(proxy && 6 * 60 * 1000));
+                    return await ppt.runOnNormalBrowser(this.__like(comments, likeLimit, proxy && 6 * 60 * 1000));
                 } catch (error) {
                     throw new Error(error);
                 } finally {
@@ -218,44 +213,32 @@ export class VnExpressService {
         return result;
     }
 
-    private __redirect(id: string, url: string, selector: string, timeout = 3 * 60 * 1000) {
-        console.log(`[${id}] Redirecting to:`, url);
-
+    private __redirect(url: string, selector: string, timeout = 3 * 60 * 1000) {
         return async function (page: PageWithCursor) {
             await Promise.race([
                 page.goto(url, { waitUntil: 'load' }),
                 page.waitForSelector(selector, { timeout }),
-            ]).catch(_ => console.log(`[${id} - ERROR] Timeout -> IGNORE`));
+            ]).catch(_ => {});
         };
     }
 
-    private __setCookiesAndRedirect(
-        id: string,
-        url: string,
-        selector: string,
-        cookies: Cookie[],
-        timeout = 3 * 60 * 1000,
-    ) {
+    private __setCookiesAndRedirect(url: string, selector: string, cookies: Cookie[], timeout = 3 * 60 * 1000) {
         return async function (page: Page) {
-            console.log(`[${id}] Found cookies! Setting cookies...`);
             await page.setCookie(...cookies);
 
-            console.log(`[${id}] Redirecting to:`, url);
             await Promise.race([
                 page.goto(url, { waitUntil: 'load' }),
                 page.waitForSelector(selector, { timeout }),
-            ]).catch(_ => console.log(`[${id} - ERROR] Timeout -> IGNORE`));
+            ]).catch(_ => {});
         };
     }
 
     private __login(
-        id: string,
         { user, pass }: { user: string; pass: string },
         profileIndex: number,
         method: EMethod,
         timeout = 30 * 1000,
     ) {
-        console.log(`[${id}] Logging in...`);
         const cookiesPath = path.resolve(
             process.cwd(),
             'accounts',
@@ -321,21 +304,18 @@ export class VnExpressService {
                     }
                 }),
                 page.waitForNavigation({ timeout }),
-            ]).catch(_ => console.log(`[${id}] Login timeout -> IGNORE`));
+            ]).catch(_ => {});
             const _ = await page.$('.log_txt');
             if (!!_) throw new Error('Login failed!');
             await sleep(5000);
 
             // Login success, saving cookies for later
-            console.log(`[${id}] Saving cookies for profile #${profileIndex} at path: ${cookiesPath}`);
             const cookies = await page.cookies();
             fs.writeFileSync(cookiesPath, JSON.stringify(cookies, null, 2));
         };
     }
 
-    private __autoScroll(id: string, maxScrolls = 50) {
-        console.log(`[${id}] Auto scrolling...`);
-
+    private __autoScroll(maxScrolls = 50) {
         return async function (page: any) {
             let totalHeight = 0;
             let scrolls = 0;
@@ -357,9 +337,7 @@ export class VnExpressService {
         };
     }
 
-    private __loadmoreComments(id: string, timeout = 3 * 60 * 1000) {
-        console.log(`[${id}] Loading more...`);
-
+    private __loadmoreComments(timeout = 3 * 60 * 1000) {
         return async function (page: Page) {
             let _: ElementHandle<Element>;
             while ((_ = await page.$('#show_more_coment'))) {
@@ -372,9 +350,7 @@ export class VnExpressService {
         };
     }
 
-    private __like(id: string, comments: VNExDataItem[], likeLimit?: number, timeout = 3 * 60 * 1000) {
-        console.log(`[${id}] Liking comments...`);
-
+    private __like(comments: VNExDataItem[], likeLimit?: number, timeout = 3 * 60 * 1000) {
         let breakFlag = false;
         const results: { flag: boolean; liked: number }[] = [];
 
@@ -392,7 +368,6 @@ export class VnExpressService {
                 );
                 const liked = currentLike - userlike;
                 if (likeLimit !== undefined && liked >= likeLimit) {
-                    console.log(`[${id}] Skip ${comment_id} since exceeded like limit`);
                     breakFlag = true;
                     results.push({ flag: false, liked });
                     continue;
@@ -405,7 +380,6 @@ export class VnExpressService {
                 });
                 // Skip if liked
                 if (buttonAttr && buttonAttr === 'like') {
-                    console.log(`[${id}] Skip ${comment_id} since liked`);
                     results.push({ flag: false, liked });
                     continue;
                 }
@@ -420,11 +394,9 @@ export class VnExpressService {
 
                 const noti = await page.$('.mfp-close');
                 if (noti) {
-                    console.log(`[${id}] Closing block noti...`);
                     await page.click('.mfp-close');
                     results.push({ flag: false, liked }); // Since we cannot do anything here
                 } else {
-                    console.log(`[${id}] ${comment_id} like success`);
                     results.push({ flag: true, liked });
                     await sleep();
                 }
@@ -455,10 +427,14 @@ export class VnExpressService {
         const commentChunk = chunking(comments, browserNum);
         let i: number;
         let data: { like: number; comment: number; vote: number } = { like: 0, comment: 0, vote: 0 };
-        if (!continueChunk || fs.existsSync('state.json')) {
+        let totalCommentSuccess = 0;
+        let totalAccountUsed = 0;
+
+        const stateFilePath = 'state.json';
+        if (!continueChunk || fs.existsSync(stateFilePath)) {
             i = 0;
         } else {
-            data = JSON.parse(fs.readFileSync('state.json', 'utf-8'));
+            data = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8'));
             i = data.comment < commentChunk.length ? data.comment : 0;
         }
         for (; i < commentChunk.length; i++) {
@@ -468,7 +444,6 @@ export class VnExpressService {
 
             const promises = commentChunk[i].map((comment, idx) =>
                 this._handleCommentVnex(
-                    `Browser #${idx}`,
                     ppts[idx],
                     url,
                     accounts[i * browserNum + idx],
@@ -478,18 +453,20 @@ export class VnExpressService {
                 ),
             );
             const result = await Promise.all(promises);
-            result.forEach((r, idx) =>
+            result.forEach((r, idx) => {
+                totalCommentSuccess += !!r ? 1 : 0;
+                totalAccountUsed++;
                 results.push({
                     comment: commentChunk[i][idx],
                     success: !!r,
-                }),
-            );
+                });
+            });
+            console.log(`${totalCommentSuccess} comment success/${totalAccountUsed} account used`);
         }
         return results;
     }
 
     private async _handleCommentVnex(
-        id: string,
         ppt: PuppeteerHelper,
         url: string,
         profile: { user: string; pass: string },
@@ -507,24 +484,16 @@ export class VnExpressService {
         );
         let loginSuccess: boolean | undefined = false;
         if (!fs.existsSync(cookiesPath)) {
-            id = `${id} - Bypass CloudFlare`;
-            console.log(`[${id}] Cookies not found. Logging in...`);
             loginSuccess = await retry(
-                id,
                 async () => {
                     try {
                         await ppt.startLoginBrowser(proxy);
                         await ppt.runOnLoginBrowser(
-                            this.__redirect(
-                                id,
-                                url,
-                                'section.section.page-detail.middle-detail',
-                                proxy && 10 * 60 * 1000,
-                            ),
+                            this.__redirect(url, 'section.section.page-detail.middle-detail', proxy && 10 * 60 * 1000),
                         );
-                        await ppt.runOnLoginBrowser(this.__autoScroll(id));
+                        await ppt.runOnLoginBrowser(this.__autoScroll());
                         await ppt.runOnLoginBrowser(
-                            this.__login(id, profile, profileIndex, EMethod.COMMENT, proxy && 2 * 60 * 1000),
+                            this.__login(profile, profileIndex, EMethod.COMMENT, proxy && 2 * 60 * 1000),
                         );
                         await sleep(5000);
                         return true;
@@ -538,29 +507,23 @@ export class VnExpressService {
             );
         }
 
-        if (loginSuccess === undefined) {
-            console.log(`[${id}] Login failed.`);
-            return undefined;
-        }
+        if (loginSuccess === undefined) return undefined;
 
-        id = `${id} - Normal`;
         const cookies = fs.readFileSync(cookiesPath, { encoding: 'utf-8' });
         const result = await retry(
-            id,
             async () => {
                 try {
                     await ppt.startNormalBrowser(proxy);
                     await ppt.runOnNormalBrowser(
                         this.__setCookiesAndRedirect(
-                            id,
                             url,
                             'section.section.page-detail.middle-detail',
                             JSON.parse(cookies),
                             proxy && 6 * 60 * 1000,
                         ),
                     );
-                    await ppt.runOnNormalBrowser(this.__autoScroll(id));
-                    return await ppt.runOnNormalBrowser(this.__comment(id, comment, proxy && 6 * 60 * 1000));
+                    await ppt.runOnNormalBrowser(this.__autoScroll());
+                    return await ppt.runOnNormalBrowser(this.__comment(comment, proxy && 6 * 60 * 1000));
                 } catch (error) {
                     throw new Error(error);
                 } finally {
@@ -572,9 +535,8 @@ export class VnExpressService {
         return result;
     }
 
-    private __comment(id: string, comment: string, timeout = 3 * 60 * 1000) {
+    private __comment(comment: string, timeout = 3 * 60 * 1000) {
         return async function (page: Page) {
-            console.log(`[${id}] Typing comment...`);
             while (true) {
                 await page.$eval('#txtComment', el =>
                     el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }),
@@ -594,7 +556,6 @@ export class VnExpressService {
             }
             await sleep();
 
-            console.log(`[${id}] Click submit comment`);
             await Promise.all([
                 page.click('#comment_post_button'),
                 page.waitForResponse(
@@ -627,12 +588,16 @@ export class VnExpressService {
         const accountChunk = chunking(accounts, browserNum);
         let i: number;
         let data: { like: number; comment: number; vote: number } = { like: 0, comment: 0, vote: 0 };
-        if (!continueChunk || fs.existsSync('state.json')) {
+        let totalAccountUsed = 0;
+
+        const stateFilePath = 'state.json';
+        if (!continueChunk || fs.existsSync(stateFilePath)) {
             i = 0;
         } else {
-            data = JSON.parse(fs.readFileSync('state.json', 'utf-8'));
+            data = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8'));
             i = data.vote < accountChunk.length ? data.vote : 0;
         }
+
         for (; i < accountChunk.length; i++) {
             console.log(`[VNExpress] Running at chunk ${i + 1} / ${accountChunk.length}`);
             data.vote = i;
@@ -640,7 +605,6 @@ export class VnExpressService {
 
             const promises = accountChunk[i].map(async (profile, idx) =>
                 this._handleVoteVnex(
-                    `Browser #${idx}`,
                     ppts[idx],
                     url,
                     profile,
@@ -650,13 +614,17 @@ export class VnExpressService {
                 ),
             );
             const result = await Promise.all(promises);
-            result.forEach(r => (results += r ? 1 : 0));
+            result.forEach(r => {
+                results += r ? 1 : 0;
+                totalAccountUsed++;
+            });
+
+            console.log(`${results} vote success/${totalAccountUsed} account used`);
         }
         return 'Success vote accounts: ' + results;
     }
 
     private async _handleVoteVnex(
-        id: string,
         ppt: PuppeteerHelper,
         url: string,
         profile: { user: string; pass: string },
@@ -674,24 +642,16 @@ export class VnExpressService {
         );
         let loginSuccess: boolean | undefined = false;
         if (!fs.existsSync(cookiesPath)) {
-            id = `${id} - Bypass CloudFlare`;
-            console.log(`[${id}] Cookies not found. Logging in...`);
             loginSuccess = await retry(
-                id,
                 async () => {
                     try {
                         await ppt.startLoginBrowser(proxy);
                         await ppt.runOnLoginBrowser(
-                            this.__redirect(
-                                id,
-                                url,
-                                'section.section.page-detail.middle-detail',
-                                proxy && 10 * 60 * 1000,
-                            ),
+                            this.__redirect(url, 'section.section.page-detail.middle-detail', proxy && 10 * 60 * 1000),
                         );
-                        await ppt.runOnLoginBrowser(this.__autoScroll(id));
+                        await ppt.runOnLoginBrowser(this.__autoScroll());
                         await ppt.runOnLoginBrowser(
-                            this.__login(id, profile, profileIndex, EMethod.VOTE, proxy && 2 * 60 * 1000),
+                            this.__login(profile, profileIndex, EMethod.VOTE, proxy && 2 * 60 * 1000),
                         );
                         await sleep(5000);
                         return true;
@@ -705,29 +665,23 @@ export class VnExpressService {
             );
         }
 
-        if (loginSuccess === undefined) {
-            console.log(`[${id}] Login failed.`);
-            return undefined;
-        }
+        if (loginSuccess === undefined) return undefined;
 
-        id = `${id} - Normal`;
         const cookies = fs.readFileSync(cookiesPath, { encoding: 'utf-8' });
         const result = await retry(
-            id,
             async () => {
                 try {
                     await ppt.startNormalBrowser(proxy);
                     await ppt.runOnNormalBrowser(
                         this.__setCookiesAndRedirect(
-                            id,
                             url,
                             'section.section.page-detail.middle-detail',
                             JSON.parse(cookies),
                             proxy && 6 * 60 * 1000,
                         ),
                     );
-                    await ppt.runOnNormalBrowser(this.__autoScroll(id));
-                    return await ppt.runOnNormalBrowser(this.__vote(id, options, proxy && 6 * 60 * 1000));
+                    await ppt.runOnNormalBrowser(this.__autoScroll());
+                    return await ppt.runOnNormalBrowser(this.__vote(options, proxy && 6 * 60 * 1000));
                 } catch (error) {
                     throw new Error(error);
                 } finally {
@@ -739,9 +693,8 @@ export class VnExpressService {
         return result;
     }
 
-    private __vote(id: string, options: number[], timeout = 3 * 60 * 1000) {
+    private __vote(options: number[], timeout = 3 * 60 * 1000) {
         return async function (page: Page) {
-            console.log(`[${id}] Select options...`);
             await page.$eval(`div[id="boxthamdoykien"]`, el =>
                 el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }),
             );
@@ -755,7 +708,6 @@ export class VnExpressService {
                 await sleep();
             }
 
-            console.log(`[${id}] Submiting vote...`);
             await sleep(5000);
             await Promise.all([
                 page.click(`#btn_add_vote_53360`),
