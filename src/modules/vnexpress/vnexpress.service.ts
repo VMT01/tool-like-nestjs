@@ -37,7 +37,7 @@ export class VnExpressService {
         }: VnExpressLikeQuery,
         body: string,
     ) {
-        const accounts = readUserPass(this._accountPath);
+        const accounts = readUserPass(this._accountPath, EMethod.LIKE);
         const vnExComments = await this._fetchVnExComments(url, body);
 
         // Init puppeteer instances
@@ -90,7 +90,7 @@ export class VnExpressService {
                         totalAccountUsed++;
                         continue;
                     }
-                    if (r.results[j].flag) {
+                    if (r.results[j].likedFlag) {
                         results[j].accountUsed++;
                         totalAccountUsed++;
                     } else {
@@ -345,14 +345,14 @@ export class VnExpressService {
                     page.click('#show_more_coment'),
                     page.waitForSelector('#show_more_coment', { timeout }),
                 ]);
-                await sleep();
+                await sleep(5000);
             }
         };
     }
 
     private __like(comments: VNExDataItem[], likeLimit?: number, timeout = 3 * 60 * 1000) {
         let breakFlag = false;
-        const results: { flag: boolean; liked: number }[] = [];
+        const results: { likedFlag: boolean; liked: number }[] = [];
 
         return async function (page: Page) {
             for (const { comment_id, userlike } of comments) {
@@ -369,7 +369,7 @@ export class VnExpressService {
                 const liked = currentLike - userlike;
                 if (likeLimit !== undefined && liked >= likeLimit) {
                     breakFlag = true;
-                    results.push({ flag: false, liked });
+                    results.push({ likedFlag: false, liked });
                     continue;
                 }
                 breakFlag = false;
@@ -380,7 +380,7 @@ export class VnExpressService {
                 });
                 // Skip if liked
                 if (buttonAttr && buttonAttr === 'like') {
-                    results.push({ flag: false, liked });
+                    results.push({ likedFlag: false, liked });
                     continue;
                 }
 
@@ -395,9 +395,9 @@ export class VnExpressService {
                 const noti = await page.$('.mfp-close');
                 if (noti) {
                     await page.click('.mfp-close');
-                    results.push({ flag: false, liked }); // Since we cannot do anything here
+                    results.push({ likedFlag: false, liked }); // Since we cannot do anything here
                 } else {
-                    results.push({ flag: true, liked });
+                    results.push({ likedFlag: true, liked });
                     await sleep();
                 }
 
@@ -412,7 +412,7 @@ export class VnExpressService {
         { url, browserNum, isVisual, proxyServer, proxyUsername, proxyPassword, continueChunk }: VnExpressCommentQuery,
         body: string,
     ) {
-        const accounts = readUserPass(this._accountPath);
+        const accounts = readUserPass(this._accountPath, EMethod.COMMENT);
         const comments = body
             .split('\n')
             .map(c => c.trim())
@@ -573,7 +573,7 @@ export class VnExpressService {
         { url, browserNum, isVisual, proxyServer, proxyUsername, proxyPassword, continueChunk }: VnExpressVoteQuery,
         body: string,
     ) {
-        const accounts = readUserPass(this._accountPath);
+        const accounts = readUserPass(this._accountPath, EMethod.VOTE);
         const options = body
             .trim()
             .split(',')

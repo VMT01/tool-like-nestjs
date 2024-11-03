@@ -3,7 +3,7 @@ import path from 'path';
 import { CookieParam } from 'puppeteer';
 
 import { ECookieFolder } from '@constants/directory.constant';
-import { EServiceKind } from '@constants/service-kind.constant';
+import { EMethod, EServiceKind } from '@constants/service-kind.constant';
 
 const serviceKindToDir = {
     [EServiceKind.VNEXPRESS]: path.join(ECookieFolder.BASE, ECookieFolder.VNEXPRESS),
@@ -22,11 +22,12 @@ export function readCookies(serviceKind: EServiceKind): CookieParam[][] {
     return cookiess;
 }
 
-export function readUserPass(accountPath: string) {
-    if (!fs.existsSync(accountPath)) throw new Error('Đường dẫn accounts/vnexpress không tồn tại');
+export function readUserPass(accountPath: string, method: EMethod) {
+    accountPath = accountPath + method;
+    if (!fs.existsSync(accountPath)) throw new Error(`Đường dẫn ${accountPath} không tồn tại`);
 
     const files = fs.readdirSync(accountPath);
-    if (files.length === 0) throw new Error('Không tồn tại danh sách account trong folder accounts/vnexress');
+    if (files.length === 0) throw new Error(`Không tồn tại danh sách account trong folder ${accountPath}`);
 
     const accountFile = path.resolve(accountPath, files[0]);
     const accountRaw = fs.readFileSync(accountFile, 'utf-8');
