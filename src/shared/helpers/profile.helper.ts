@@ -23,7 +23,7 @@ export function readCookies(serviceKind: EServiceKind): CookieParam[][] {
 }
 
 export function readUserPass(accountPath: string, method: EMethod) {
-    accountPath = accountPath + method;
+    accountPath = path.join(accountPath, method);
     if (!fs.existsSync(accountPath)) throw new Error(`Đường dẫn ${accountPath} không tồn tại`);
 
     const files = fs.readdirSync(accountPath);
