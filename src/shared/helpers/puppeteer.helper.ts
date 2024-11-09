@@ -48,7 +48,7 @@ export class PuppeteerHelper {
         });
     }
 
-    async startNormalBrowser(proxy: Proxy) {
+    async startNormalBrowser(proxy?: Proxy) {
         const args = ['--incognito', '--no-sandbox', '--disable-setuid-sandbox'];
         if (proxy) args.push(`--proxy-server=${proxy.proxyServer}`);
 
