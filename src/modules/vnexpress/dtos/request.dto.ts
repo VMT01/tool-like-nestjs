@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString, IsUrl, Min, ValidateIf } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString, IsUrl, Matches, Min } from 'class-validator';
 
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -20,27 +20,17 @@ export class VnExpressQuery {
     @IsBoolean()
     @Transform(({ value }) => value === 'true')
     @IsNotEmpty()
-    isVisual: boolean;
+    isVisual: boolean = true;
 
     @ApiProperty({
-        description: 'Đường dẫn server proxy (có dạng `host:port` - e.g: 118.70.126.245:5678)',
+        description:
+            'Đường dẫn proxy (có dạng `host:port:reset_link` - e.g: 27.79.184.38:6001:http://27.79.184.38:60777/reset?proxy=6001)',
         required: false,
     })
+    @Matches(/^(\d{1,3}\.){3}\d{1,3}:\d{1,5}:(https?:\/\/.+\/reset\?proxy=\d{1,5})$/g)
     @IsString()
     @IsOptional()
-    proxyServer: string;
-
-    @ApiProperty({ description: 'Username để xác thực proxy server', required: false })
-    @IsString()
-    @IsNotEmpty()
-    @ValidateIf(req => !!req.proxyServer)
-    proxyUsername: string;
-
-    @ApiProperty({ description: 'Password để xác thực proxy server', required: false })
-    @IsString()
-    @IsNotEmpty()
-    @ValidateIf(req => !!req.proxyServer)
-    proxyPassword: string;
+    resetProxy?: string;
 
     @ApiProperty({ description: 'Tiếp tục từ chunk đã chạy trước đó', required: false, default: false })
     @IsBoolean()

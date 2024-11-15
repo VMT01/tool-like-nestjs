@@ -4,6 +4,7 @@ import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { VnExpressCommentQuery } from './dtos/request-comment.dto';
 import { VnExpressLikeQuery } from './dtos/request-like.dto';
 import { VnExpressVoteQuery } from './dtos/request-vote.dto';
+import { VnExpressQuery } from './dtos/request.dto';
 import { VnExpressService } from './vnexpress.service';
 
 @Controller('vnexpress')
@@ -36,5 +37,10 @@ export class VnExpressController {
     @ApiConsumes('text/plain')
     voteVnex(@Query() query: VnExpressVoteQuery, @Body() body: string) {
         return this.vnexService.voteVnex(query, body);
+    }
+
+    @Post('/test-proxy')
+    testProxy(@Query() query: VnExpressQuery) {
+        return this.vnexService.testProxy(query);
     }
 }
