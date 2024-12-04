@@ -13,7 +13,6 @@ export class PuppeteerHelper {
     private _headless: boolean;
 
     private _proxy?: ProxyOptions;
-    private _resetLink?: string;
 
     private _loginBrowser: any;
     private _loginPage: PageWithCursor;
@@ -25,10 +24,9 @@ export class PuppeteerHelper {
         this._headless = headless;
 
         if (resetProxy) {
-            const regex = /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d{1,5}):(https?:\/\/.+\/reset\?proxy=\d{1,5})$/;
-            const [, host, port, resetLink] = resetProxy.match(regex);
-            this._proxy = { host, port: Number(port) };
-            this._resetLink = resetLink;
+            const regex = /^(\w+):(\w+)@([0-9.]+):(\d+)$/;
+            const [, username, password, host, port] = resetProxy.match(regex);
+            this._proxy = { host, port: Number(port), username, password };
         }
     }
 
@@ -46,11 +44,14 @@ export class PuppeteerHelper {
         this._loginBrowser = browser;
         this._loginPage = page;
 
-        // if (this._proxy) {
-        //     console.log('TRY RESET PROXY:', this._resetLink);
-        //     const res = await axios.get(this._resetLink);
-        //     console.log('RESET PROXY RES', res);
-        // }
+        if (this._proxy) {
+            const apiKey = '5037ddcb-e786-48dd-8ee1-e0895d3aa89a';
+            console.log('TRY RESET PROXY');
+            await fetch(
+                `https://api.proxymart.net/api/change-ip?api_key=${apiKey}&host=${this._proxy.host}&port=${this._proxy.port}`,
+            );
+            console.log('RESET PROXY DONE');
+        }
 
         const timeoutMultiplier = this._proxy ? 6 : 3;
         this._loginPage.setDefaultNavigationTimeout(60 * 1000 * timeoutMultiplier);
@@ -78,7 +79,12 @@ export class PuppeteerHelper {
 
     async startNormalBrowser() {
         const args = ['--incognito', '--no-sandbox', '--disable-setuid-sandbox'];
-        if (this._proxy) args.push(`--proxy-server=${this._proxy.host}:${this._proxy.port}`);
+        if (this._proxy) {
+            const apiKey = '4e45fa2d-dd46-9ee1-924ebef5eedd';
+            const res: any = await axios.get(`https://proxymart.pro/key/get-current-ip?key=${apiKey}`);
+            console.log(res);
+            args.push(`--proxy-server=${res.host}:${res.port}`);
+        }
 
         this._normalBrowser = await puppeteer.launch({
             headless: this._headless,
@@ -91,7 +97,17 @@ export class PuppeteerHelper {
             },
         });
         [this._normalPage] = await this._normalBrowser.pages();
-        // if (this._proxy) await fetch(this._resetLink);
+
+        // if (this._proxy) {
+        //     console.log('TRY RESET PROXY');
+        //     // await this._normalPage.authenticate({ username: this._proxy.username, password: this._proxy.password });
+        //     // const apiKey = '5037ddcb-e786-48dd-8ee1-e0895d3aa89a';
+        //     // console.log('TRY RESET PROXY');
+        //     // await fetch(
+        //     //     `https://api.proxymart.net/api/change-ip?api_key=${apiKey}&host=${this._proxy.host}&port=${this._proxy.port}`,
+        //     // );
+        //     console.log('RESET PROXY DONE');
+        // }
 
         await this._normalPage.setUserAgent(randomUseragent.getRandom());
 

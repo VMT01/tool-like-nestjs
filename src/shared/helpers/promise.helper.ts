@@ -1,7 +1,7 @@
 export const sleep = (ms = 2000) => new Promise(rs => setTimeout(rs, ms));
 
 export async function retry<T>(
-    log: (message: any, isError?: boolean) => void,
+    error: (message: any) => void,
     f: () => Promise<T>,
     cond: (e: T | undefined) => boolean,
     maxRetries = 5,
@@ -15,7 +15,7 @@ export async function retry<T>(
             data = await f();
             if (cond(data)) break;
         } catch (err) {
-            log(err.message, true);
+            error(err.message);
         } finally {
             retries++;
             await sleep(delay);

@@ -24,10 +24,10 @@ export class VnExpressQuery {
 
     @ApiProperty({
         description:
-            'Đường dẫn proxy (có dạng `host:port:reset_link` - e.g: 27.79.184.38:6001:http://27.79.184.38:60777/reset?proxy=6001)',
+            'Đường dẫn proxy (có dạng `username:password@host:port` - e.g: proxymart49482:ejlLRrBn@103.15.89.251:49482)',
         required: false,
     })
-    @Matches(/^(\d{1,3}\.){3}\d{1,3}:\d{1,5}:(https?:\/\/.+\/reset\?proxy=\d{1,5})$/g)
+    @Matches(/^(\w+):(\w+)@([0-9.]+):(\d+)$/g)
     @IsString()
     @IsOptional()
     resetProxy?: string;
