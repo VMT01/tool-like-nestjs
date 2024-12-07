@@ -339,8 +339,9 @@ export class VnExpressService {
                     window.scrollBy({ top: distance, behavior: 'smooth' });
 
                     const anchorEl = document.querySelector('section.section.page-detail.middle-detail');
-                    const elBottom = anchorEl.getBoundingClientRect().bottom;
+                    if (!anchorEl) return false;
 
+                    const elBottom = anchorEl.getBoundingClientRect().bottom;
                     return elBottom <= window.innerHeight / 2;
                 });
                 if (shouldBreak || scrolls >= maxScrolls) break;
@@ -823,30 +824,16 @@ export class VnExpressService {
     }
 
     private async _handleTestProxy(ppt: PuppeteerHelper, url: string) {
-        // console.log('TEST BROWSER WITH CURSOR');
-        // try {
-        //     await ppt.startLoginBrowser();
-        //     await ppt.runOnLoginBrowser(async page => {
-        //         await page.goto(url);
-        //     });
-        //     await sleep(10_000);
-        // } catch (error) {
-        //     throw new Error(error);
-        // } finally {
-        //     await ppt.stopLoginBrownser();
-        // }
+        console.log('TEST BROWSER WITH CURSOR');
+        await ppt.startLoginBrowser().catch(err => console.log('[CURSOR: start]', err));
+        await ppt.runOnLoginBrowser(page => page.goto(url)).catch(err => console.log('[CURSOR: run]', err));
+        await sleep(1 * 60 * 1000);
+        await ppt.stopLoginBrownser().catch(err => console.log('[CURSOR: end]', err));
 
         console.log('TEST NORMAL BROWSER');
-        try {
-            await ppt.startNormalBrowser();
-            await ppt.runOnNormalBrowser(async page => {
-                await page.goto(url);
-            });
-            await sleep(10_000);
-        } catch (error) {
-            throw new Error(error);
-        } finally {
-            await ppt.stopNormalBrowser();
-        }
+        await ppt.startNormalBrowser().catch(err => console.log('[NORMAL: start]', err));
+        await ppt.runOnNormalBrowser(page => page.goto(url)).catch(err => console.log('[NORMAL: run]', err));
+        await sleep(1 * 60 * 1000);
+        await ppt.stopNormalBrowser().catch(err => console.log('[NORMAL: end]', err));
     }
 }

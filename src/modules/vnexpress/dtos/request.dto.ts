@@ -27,7 +27,7 @@ export class VnExpressQuery {
             'Đường dẫn proxy (có dạng `username:password@host:port` - e.g: proxymart49482:ejlLRrBn@103.15.89.251:49482)',
         required: false,
     })
-    @Matches(/^(\w+):(\w+)@([0-9.]+):(\d+)$/g)
+    @Matches(/^([a-zA-Z0-9._-]+):([^@]+)@([a-zA-Z0-9.-]+):(\d+)$/)
     @IsString()
     @IsOptional()
     resetProxy?: string;

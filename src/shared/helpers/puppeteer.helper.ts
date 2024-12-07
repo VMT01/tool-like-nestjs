@@ -1,4 +1,3 @@
-import axios from 'axios';
 import { Browser, Page } from 'puppeteer';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
@@ -24,7 +23,8 @@ export class PuppeteerHelper {
         this._headless = headless;
 
         if (resetProxy) {
-            const regex = /^(\w+):(\w+)@([0-9.]+):(\d+)$/;
+            console.log(resetProxy);
+            const regex = /^([a-zA-Z0-9._-]+):([^@]+)@([a-zA-Z0-9.-]+):(\d+)$/;
             const [, username, password, host, port] = resetProxy.match(regex);
             this._proxy = { host, port: Number(port), username, password };
         }
@@ -33,28 +33,24 @@ export class PuppeteerHelper {
     /* ---------- Browser with cursor ---------- */
 
     async startLoginBrowser() {
+        const args = ['--incognito', '--disable-web-security'];
+        if (this._proxy) {
+            args.push(`--proxy-server=${this._proxy.host}:${this._proxy.port}`);
+        }
+
         const { browser, page } = await connect({
+            args,
             headless: this._headless,
-            args: ['--incognito', '--disable-web-security'],
             turnstile: true,
             disableXvfb: true,
             ignoreAllFlags: false,
-            proxy: this._proxy,
         });
         this._loginBrowser = browser;
         this._loginPage = page;
 
         if (this._proxy) {
-            const apiKey = '5037ddcb-e786-48dd-8ee1-e0895d3aa89a';
-            console.log('TRY RESET PROXY');
-            await fetch(
-                `https://api.proxymart.net/api/change-ip?api_key=${apiKey}&host=${this._proxy.host}&port=${this._proxy.port}`,
-            );
-            console.log('RESET PROXY DONE');
+            await this._loginPage.authenticate({ username: this._proxy.username, password: this._proxy.password });
         }
-
-        const timeoutMultiplier = this._proxy ? 6 : 3;
-        this._loginPage.setDefaultNavigationTimeout(60 * 1000 * timeoutMultiplier);
 
         await this._loginPage.setViewport({ width: 1024, height: 1280, deviceScaleFactor: 1, isLandscape: true });
         await this._loginPage.setUserAgent(randomUseragent.getRandom());
@@ -64,6 +60,10 @@ export class PuppeteerHelper {
                 return window;
             };
         });
+
+        const timeoutMultiplier = this._proxy ? 6 : 3;
+        this._loginPage.setDefaultNavigationTimeout(60 * 1000 * timeoutMultiplier);
+        this._loginPage.setDefaultTimeout(60 * 1000 * timeoutMultiplier);
     }
 
     async stopLoginBrownser() {
@@ -80,10 +80,7 @@ export class PuppeteerHelper {
     async startNormalBrowser() {
         const args = ['--incognito', '--no-sandbox', '--disable-setuid-sandbox'];
         if (this._proxy) {
-            const apiKey = '4e45fa2d-dd46-9ee1-924ebef5eedd';
-            const res: any = await axios.get(`https://proxymart.pro/key/get-current-ip?key=${apiKey}`);
-            console.log(res);
-            args.push(`--proxy-server=${res.host}:${res.port}`);
+            args.push(`--proxy-server=${this._proxy.host}:${this._proxy.port}`);
         }
 
         this._normalBrowser = await puppeteer.launch({
@@ -98,21 +95,15 @@ export class PuppeteerHelper {
         });
         [this._normalPage] = await this._normalBrowser.pages();
 
-        // if (this._proxy) {
-        //     console.log('TRY RESET PROXY');
-        //     // await this._normalPage.authenticate({ username: this._proxy.username, password: this._proxy.password });
-        //     // const apiKey = '5037ddcb-e786-48dd-8ee1-e0895d3aa89a';
-        //     // console.log('TRY RESET PROXY');
-        //     // await fetch(
-        //     //     `https://api.proxymart.net/api/change-ip?api_key=${apiKey}&host=${this._proxy.host}&port=${this._proxy.port}`,
-        //     // );
-        //     console.log('RESET PROXY DONE');
-        // }
+        if (this._proxy) {
+            await this._normalPage.authenticate({ username: this._proxy.username, password: this._proxy.password });
+        }
 
         await this._normalPage.setUserAgent(randomUseragent.getRandom());
 
         const timeoutMultiplier = this._proxy ? 6 : 3;
         this._normalPage.setDefaultNavigationTimeout(60 * 1000 * timeoutMultiplier);
+        this._normalPage.setDefaultTimeout(60 * 1000 * timeoutMultiplier);
     }
 
     async stopNormalBrowser() {
