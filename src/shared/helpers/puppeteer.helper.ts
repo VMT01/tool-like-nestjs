@@ -1,4 +1,3 @@
-import { Browser, Page } from 'puppeteer';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { connect, PageWithCursor, ProxyOptions } from 'puppeteer-real-browser';
@@ -16,8 +15,8 @@ export class PuppeteerHelper {
     private _loginBrowser: any;
     private _loginPage: PageWithCursor;
 
-    private _normalBrowser: Browser;
-    private _normalPage: Page;
+    private _normalBrowser: any;
+    private _normalPage: PageWithCursor;
 
     constructor(headless: boolean, resetProxy?: string) {
         this._headless = headless;
@@ -83,23 +82,39 @@ export class PuppeteerHelper {
             args.push(`--proxy-server=${this._proxy.host}:${this._proxy.port}`);
         }
 
-        this._normalBrowser = await puppeteer.launch({
-            headless: this._headless,
+        // this._normalBrowser = await puppeteer.launch({
+        //     headless: this._headless,
+        //     args,
+        //     defaultViewport: {
+        //         width: 1024,
+        //         height: 1280,
+        //         deviceScaleFactor: 1,
+        //         isLandscape: true,
+        //     },
+        // });
+        // [this._normalPage] = await this._normalBrowser.pages();
+        const { browser, page } = await connect({
             args,
-            defaultViewport: {
-                width: 1024,
-                height: 1280,
-                deviceScaleFactor: 1,
-                isLandscape: true,
-            },
+            headless: this._headless,
+            turnstile: true,
+            disableXvfb: true,
+            ignoreAllFlags: false,
         });
-        [this._normalPage] = await this._normalBrowser.pages();
+        this._normalBrowser = browser;
+        this._normalPage = page;
 
         if (this._proxy) {
             await this._normalPage.authenticate({ username: this._proxy.username, password: this._proxy.password });
         }
 
+        await this._normalPage.setViewport({ width: 1024, height: 1280, deviceScaleFactor: 1, isLandscape: true });
         await this._normalPage.setUserAgent(randomUseragent.getRandom());
+        await this._normalPage.evaluateOnNewDocument(() => {
+            window.open = url => {
+                window.location.href = url.toString();
+                return window;
+            };
+        });
 
         const timeoutMultiplier = this._proxy ? 6 : 3;
         this._normalPage.setDefaultNavigationTimeout(60 * 1000 * timeoutMultiplier);
@@ -111,7 +126,8 @@ export class PuppeteerHelper {
         await this._normalBrowser.close();
     }
 
-    async runOnNormalBrowser<T>(f: (page: Page) => Promise<T>) {
+    // async runOnNormalBrowser<T>(f: (page: Page) => Promise<T>) {
+    async runOnNormalBrowser<T>(f: (page: PageWithCursor) => Promise<T>) {
         return await f(this._normalPage);
     }
 }

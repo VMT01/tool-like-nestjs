@@ -1,7 +1,7 @@
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
-import { Cookie, Page } from 'puppeteer';
+import { Cookie } from 'puppeteer';
 import { PageWithCursor } from 'puppeteer-real-browser';
 
 import { Injectable } from '@nestjs/common';
@@ -241,7 +241,7 @@ export class VnExpressService {
 
     private __setCookiesAndRedirect(id: string, url: string, selector: string, cookies: Cookie[]) {
         const log = this._logger.instance(id).log;
-        return async function (page: Page) {
+        return async function (page: PageWithCursor) {
             log('Đang thiết lập cookies');
             await page.setCookie(...cookies);
 
@@ -354,7 +354,7 @@ export class VnExpressService {
 
     private __loadmoreComments(id: string) {
         this._logger.instance(id).log('Đang bấm "Xem"');
-        return async function (page: Page) {
+        return async function (page: PageWithCursor) {
             while (true) {
                 const shouldBreak = await page.evaluate(() => {
                     const el = document.querySelector('#show_more_coment');
@@ -377,7 +377,7 @@ export class VnExpressService {
         const { log, error } = this._logger.instance(id);
         log('Đang chạy like...');
 
-        return async function (page: Page) {
+        return async function (page: PageWithCursor) {
             for (const { comment_id, userlike } of comments) {
                 // Scroll to view;
                 await page.$eval(`a[id="${comment_id}"]`, el =>
@@ -568,7 +568,7 @@ export class VnExpressService {
     private __comment(id: string, comment: string) {
         this._logger.instance(id).log('Đang chạy comment...');
 
-        return async function (page: Page) {
+        return async function (page: PageWithCursor) {
             while (true) {
                 await page.$eval('#txtComment', el =>
                     el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }),
@@ -668,7 +668,7 @@ export class VnExpressService {
         this._logger.service.log('Đang chạy browser để lấy số vote cơ sở');
         const ppt = new PuppeteerHelper(false);
         await ppt.startNormalBrowser();
-        const voteCounts = await ppt.runOnNormalBrowser(async (page: Page) => {
+        const voteCounts = await ppt.runOnNormalBrowser(async (page: PageWithCursor) => {
             await page.goto(url, { waitUntil: 'load' }).catch(_ => {});
             await page.$eval(`div[id="boxthamdoykien"]`, el =>
                 el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }),
@@ -772,7 +772,7 @@ export class VnExpressService {
         const log = this._logger.instance(id).log;
         log('Đang chạy vote...');
 
-        return async function (page: Page) {
+        return async function (page: PageWithCursor) {
             await page.$eval(`div[id="boxthamdoykien"]`, el =>
                 el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }),
             );
