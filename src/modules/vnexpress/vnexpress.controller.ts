@@ -22,25 +22,25 @@ export class VnExpressController {
         return this.vnexService.likeVnex(query, body);
     }
 
-    @Post('/comment-vnex')
-    @ApiOperation({
-        summary: 'Comment VNExpress',
-        description: 'Comment trên trang VNExpress dựa trên danh sách file cookie cung cấp',
-    })
-    @ApiConsumes('text/plain')
-    commentVnex(@Query() query: VnExpressCommentQuery, @Body() body: string) {
-        return this.vnexService.commentVnex(query, body);
-    }
+    // @Post('/comment-vnex')
+    // @ApiOperation({
+    //     summary: 'Comment VNExpress',
+    //     description: 'Comment trên trang VNExpress dựa trên danh sách file cookie cung cấp',
+    // })
+    // @ApiConsumes('text/plain')
+    // commentVnex(@Query() query: VnExpressCommentQuery, @Body() body: string) {
+    //     return this.vnexService.commentVnex(query, body);
+    // }
 
-    @Post('/vote-vnex')
-    @ApiOperation({ summary: 'Vote VNExpress' })
-    @ApiConsumes('text/plain')
-    voteVnex(@Query() query: VnExpressVoteQuery, @Body() body: string) {
-        return this.vnexService.voteVnex(query, body);
-    }
+    // @Post('/vote-vnex')
+    // @ApiOperation({ summary: 'Vote VNExpress' })
+    // @ApiConsumes('text/plain')
+    // voteVnex(@Query() query: VnExpressVoteQuery, @Body() body: string) {
+    //     return this.vnexService.voteVnex(query, body);
+    // }
 
-    @Post('/test-proxy')
-    testProxy(@Query() query: VnExpressQuery) {
-        return this.vnexService.testProxy(query);
-    }
+    // @Post('/test-proxy')
+    // testProxy(@Query() query: VnExpressQuery) {
+    //     return this.vnexService.testProxy(query);
+    // }
 }

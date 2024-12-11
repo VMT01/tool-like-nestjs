@@ -1,0 +1,8 @@
+node_modules/
+dist/
+
+Dockerfile
+.dockerignore
+state.json
+run.bat
+update.bat

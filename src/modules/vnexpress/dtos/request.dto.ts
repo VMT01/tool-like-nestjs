@@ -23,14 +23,14 @@ export class VnExpressQuery {
     isVisual: boolean = true;
 
     @ApiProperty({
-        description:
-            'Đường dẫn proxy (có dạng `username:password@host:port` - e.g: proxymart49482:ejlLRrBn@103.15.89.251:49482)',
+        description: 'Đường dẫn proxy (có dạng `username:password@host:port`)',
         required: false,
+        example: 'ue2o0cguyzyznm0-country-vn:tcdxw7pm6fge5h1@rp.proxyscrape.com:6060',
     })
     @Matches(/^([a-zA-Z0-9._-]+):([^@]+)@([a-zA-Z0-9.-]+):(\d+)$/)
     @IsString()
     @IsOptional()
-    resetProxy?: string;
+    proxy?: string;
 
     @ApiProperty({ description: 'Tiếp tục từ chunk đã chạy trước đó', required: false, default: false })
     @IsBoolean()

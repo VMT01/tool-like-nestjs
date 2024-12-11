@@ -6,18 +6,12 @@ function log({ service, instances }: Messages) {
     process.stdout.clearScreenDown();
 
     // Print service logs
-    service.forEach(({ isError, message }) => {
-        if (isError) console.error(`[ERROR] ${message}`);
-        else console.info(message);
-    });
+    service.forEach(({ isError, message }) => console.log(`${isError ? '[ERROR] ' : ''}${message}`));
 
     // Print instances logs
     Object.entries(instances).forEach(([key, logs]) => {
         console.log(`\n[${key}]`);
-        logs.forEach(({ isError, message }) => {
-            if (isError) console.error(`\t[ERROR] ${message}`);
-            else console.info(`\t${message}`);
-        });
+        logs.forEach(({ isError, message }) => console.log(`${isError ? '[ERROR] ' : ''}${message}`));
     });
 }
 
@@ -41,6 +35,7 @@ export function createLogger() {
 
                 log(messages);
             },
+            // reset: () => (messages.service = []),
         },
         instance: (id: string) => {
             if (!messages.instances[id]) {
@@ -63,6 +58,7 @@ export function createLogger() {
 
                     log(messages);
                 },
+                reset: () => (messages.instances[id] = []),
             };
         },
     };

@@ -12,30 +12,25 @@ export class PuppeteerHelper {
 
     private _proxy?: ProxyOptions;
 
-    private _loginBrowser: any;
-    private _loginPage: PageWithCursor;
+    private _browser: any;
+    private _page: PageWithCursor;
 
-    private _normalBrowser: any;
-    private _normalPage: PageWithCursor;
+    // private _normalBrowser: any;
+    // private _normalPage: PageWithCursor;
 
-    constructor(headless: boolean, resetProxy?: string) {
+    constructor(headless: boolean, proxy?: string) {
         this._headless = headless;
 
-        if (resetProxy) {
-            console.log(resetProxy);
+        if (proxy) {
             const regex = /^([a-zA-Z0-9._-]+):([^@]+)@([a-zA-Z0-9.-]+):(\d+)$/;
-            const [, username, password, host, port] = resetProxy.match(regex);
+            const [, username, password, host, port] = proxy.match(regex);
             this._proxy = { host, port: Number(port), username, password };
         }
     }
 
-    /* ---------- Browser with cursor ---------- */
-
-    async startLoginBrowser() {
-        const args = ['--incognito', '--disable-web-security'];
-        if (this._proxy) {
-            args.push(`--proxy-server=${this._proxy.host}:${this._proxy.port}`);
-        }
+    async start() {
+        const args = ['--incognito', '--disable-web-security', '--no-sandbox'];
+        if (this._proxy) args.push(`--proxy-server=${this._proxy.host}:${this._proxy.port}`);
 
         const { browser, page } = await connect({
             args,
@@ -44,90 +39,100 @@ export class PuppeteerHelper {
             disableXvfb: true,
             ignoreAllFlags: false,
         });
-        this._loginBrowser = browser;
-        this._loginPage = page;
+        this._browser = browser;
+        this._page = page;
 
         if (this._proxy) {
-            await this._loginPage.authenticate({ username: this._proxy.username, password: this._proxy.password });
+            await this._page.authenticate({ username: this._proxy.username, password: this._proxy.password });
         }
 
-        await this._loginPage.setViewport({ width: 1024, height: 1280, deviceScaleFactor: 1, isLandscape: true });
-        await this._loginPage.setUserAgent(randomUseragent.getRandom());
-        await this._loginPage.evaluateOnNewDocument(() => {
-            window.open = url => {
-                window.location.href = url.toString();
-                return window;
-            };
-        });
+        await Promise.all([
+            this._page.setViewport({ width: 1024, height: 1280, deviceScaleFactor: 1, isLandscape: true }),
+            this._page.setUserAgent(randomUseragent.getRandom()),
+            this._page.evaluateOnNewDocument(() => {
+                window.open = url => {
+                    url = url.toString();
+                    console.log('[Puppeteer] Tracking URL:', url);
+
+                    // Avoid open new tab if ads detected
+                    const blockKeywords = ['ads', 'advertisement', 'popup', 'tracker'];
+                    if (blockKeywords.some(keyword => url.includes(keyword))) return undefined;
+
+                    // Redirect in current tab if validate URL success
+                    window.location.href = url;
+                    return window;
+                };
+            }),
+        ]);
 
         const timeoutMultiplier = this._proxy ? 6 : 3;
-        this._loginPage.setDefaultNavigationTimeout(60 * 1000 * timeoutMultiplier);
-        this._loginPage.setDefaultTimeout(60 * 1000 * timeoutMultiplier);
+        this._page.setDefaultNavigationTimeout(60 * 1000 * timeoutMultiplier);
+        this._page.setDefaultTimeout(60 * 1000 * timeoutMultiplier);
     }
 
-    async stopLoginBrownser() {
-        await this._loginPage.close();
-        await this._loginBrowser.close();
+    async stop() {
+        await this._page.close();
+        await this._browser.close();
     }
 
-    async runOnLoginBrowser<T>(f: (page: PageWithCursor) => Promise<T>) {
-        return await f(this._loginPage);
+    async run<T>(f: (page: PageWithCursor) => Promise<T>) {
+        return await f(this._page);
     }
 
-    /* ---------- Normal browser ---------- */
+    // /* ---------- Normal browser ---------- */
 
-    async startNormalBrowser() {
-        const args = ['--incognito', '--no-sandbox', '--disable-setuid-sandbox'];
-        if (this._proxy) {
-            args.push(`--proxy-server=${this._proxy.host}:${this._proxy.port}`);
-        }
+    // async startNormalBrowser() {
+    //     const args = ['--incognito', '--no-sandbox', '--disable-setuid-sandbox'];
+    //     if (this._proxy) {
+    //         args.push(`--proxy-server=${this._proxy.host}:${this._proxy.port}`);
+    //     }
 
-        // this._normalBrowser = await puppeteer.launch({
-        //     headless: this._headless,
-        //     args,
-        //     defaultViewport: {
-        //         width: 1024,
-        //         height: 1280,
-        //         deviceScaleFactor: 1,
-        //         isLandscape: true,
-        //     },
-        // });
-        // [this._normalPage] = await this._normalBrowser.pages();
-        const { browser, page } = await connect({
-            args,
-            headless: this._headless,
-            turnstile: true,
-            disableXvfb: true,
-            ignoreAllFlags: false,
-        });
-        this._normalBrowser = browser;
-        this._normalPage = page;
+    //     // this._normalBrowser = await puppeteer.launch({
+    //     //     headless: this._headless,
+    //     //     args,
+    //     //     defaultViewport: {
+    //     //         width: 1024,
+    //     //         height: 1280,
+    //     //         deviceScaleFactor: 1,
+    //     //         isLandscape: true,
+    //     //     },
+    //     // });
+    //     // [this._normalPage] = await this._normalBrowser.pages();
+    //     const { browser, page } = await connect({
+    //         args,
+    //         headless: this._headless,
+    //         turnstile: true,
+    //         disableXvfb: true,
+    //         ignoreAllFlags: false,
+    //     });
+    //     this._normalBrowser = browser;
+    //     this._normalPage = page;
 
-        if (this._proxy) {
-            await this._normalPage.authenticate({ username: this._proxy.username, password: this._proxy.password });
-        }
+    //     if (this._proxy) {
+    //         await this._normalPage.authenticate({ username: this._proxy.username, password: this._proxy.password });
+    //     }
 
-        await this._normalPage.setViewport({ width: 1024, height: 1280, deviceScaleFactor: 1, isLandscape: true });
-        await this._normalPage.setUserAgent(randomUseragent.getRandom());
-        await this._normalPage.evaluateOnNewDocument(() => {
-            window.open = url => {
-                window.location.href = url.toString();
-                return window;
-            };
-        });
+    //     await this._normalPage.setViewport({ width: 1024, height: 1280, deviceScaleFactor: 1, isLandscape: true });
+    //     await this._normalPage.setUserAgent(randomUseragent.getRandom());
+    //     await this._normalPage.evaluateOnNewDocument(() => {
+    //         window.open = url => {
+    //             window.location.href = url.toString();
+    //             return window;
+    //         };
+    //     });
 
-        const timeoutMultiplier = this._proxy ? 6 : 3;
-        this._normalPage.setDefaultNavigationTimeout(60 * 1000 * timeoutMultiplier);
-        this._normalPage.setDefaultTimeout(60 * 1000 * timeoutMultiplier);
-    }
+    //     const timeoutMultiplier = this._proxy ? 6 : 3;
+    //     this._normalPage.setDefaultNavigationTimeout(60 * 1000 * timeoutMultiplier);
+    //     this._normalPage.setDefaultTimeout(60 * 1000 * timeoutMultiplier);
+    // }
 
-    async stopNormalBrowser() {
-        await this._normalPage.close();
-        await this._normalBrowser.close();
-    }
+    // async stopNormalBrowser() {
+    //     await this._normalPage.close();
+    //     await this._normalBrowser.close();
+    // }
 
-    // async runOnNormalBrowser<T>(f: (page: Page) => Promise<T>) {
-    async runOnNormalBrowser<T>(f: (page: PageWithCursor) => Promise<T>) {
-        return await f(this._normalPage);
-    }
+    // // async runOnNormalBrowser<T>(f: (page: Page) => Promise<T>) {
+    // async runOnNormalBrowser<T>(f: (page: PageWithCursor) => Promise<T>) {
+    //     return await f(this._normalPage);
+    // }
 }
